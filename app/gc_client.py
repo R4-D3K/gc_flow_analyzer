@@ -64,11 +64,40 @@ def _extract_flow_instance_ids(conversation_details: dict) -> list[dict]:
     Walk through conversation participants/sessions to collect all flow instance runs.
     Returns list of dicts: {flowInstanceId, flowName, flowType, startTime, endTime}
     """
+    logger.info("conversation_details top-level keys: %s", list(conversation_details.keys()))
+    participants = conversation_details.get("participants", [])
+    logger.info("_extract_flow_instance_ids: %d participant(s)", len(participants))
+
     instances = []
-    for participant in conversation_details.get("participants", []):
-        for session in participant.get("sessions", []):
-            for flow in session.get("flows", []):
-                instance_id = flow.get("flow_instance_id") or flow.get("flowInstanceId")
+    for p_idx, participant in enumerate(participants):
+        sessions = participant.get("sessions", [])
+        logger.info("  participant[%d] purpose=%s sessions=%d",
+                    p_idx, participant.get("purpose", "?"), len(sessions))
+        for s_idx, session in enumerate(sessions):
+            # SDK v233 uses singular 'flow' (dict), older versions used 'flows' (list)
+            flow_singular = session.get("flow")
+            flows_plural = session.get("flows") or []
+            # Normalise to a list of flow dicts
+            if flow_singular and isinstance(flow_singular, dict):
+                flows_raw = [flow_singular]
+            elif flows_plural:
+                flows_raw = flows_plural if isinstance(flows_plural, list) else [flows_plural]
+            else:
+                flows_raw = []
+            logger.info("    session[%d] flow(singular)=%s flows(list)=%d → using %d",
+                        s_idx, bool(flow_singular), len(flows_plural), len(flows_raw))
+            for f_idx, flow in enumerate(flows_raw):
+                logger.info("      flow[%d] keys=%s", f_idx, list(flow.keys()))
+                instance_id = (
+                    flow.get("flow_instance_id")
+                    or flow.get("flowInstanceId")
+                )
+                if not instance_id:
+                    logger.warning(
+                        "      flow[%d] has no flow_instance_id — "
+                        "Execution Data logging is likely disabled in Architect for flow '%s'",
+                        f_idx, flow.get("flow_name", "?")
+                    )
                 if instance_id and instance_id not in [i["flowInstanceId"] for i in instances]:
                     instances.append({
                         "flowInstanceId": instance_id,
@@ -80,6 +109,8 @@ def _extract_flow_instance_ids(conversation_details: dict) -> list[dict]:
                         "endTime": flow.get("flow_end_timestamp") or flow.get("endTime", ""),
                         "exitReason": flow.get("exit_reason") or flow.get("exitReason", ""),
                     })
+
+    logger.info("_extract_flow_instance_ids: found %d instance(s)", len(instances))
     return instances
 
 
@@ -207,7 +238,9 @@ def get_flow_execution_data(conversation_id: str) -> dict:
     if not instances:
         raise GCClientError(
             f"No flow execution instances found for conversation '{conversation_id}'. "
-            "Make sure the flow has execution data logging enabled."
+            "The conversation passed through a flow, but no flow_instance_id was returned — "
+            "Execution Data logging must be enabled in Architect: "
+            "flow Settings → Execution Data → set to 'All', then publish and test a new call."
         )
 
     logger.info("Found %d flow instance(s)", len(instances))
