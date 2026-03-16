@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}GC Flow Analyzer{% endblock %}</title>
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Mermaid.js for flow diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gc: {
+              dark:  '#1a1a2e',
+              blue:  '#0f3460',
+              teal:  '#16213e',
+              accent:'#e94560',
+              light: '#a8b2d8',
+            }
+          }
+        }
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        flowchart: { curve: 'basis', useMaxWidth: true },
+        securityLevel: 'loose',
+      });
+    });
+  </script>
+
+  <style>
+    body { background-color: #0d1117; color: #c9d1d9; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
+    .badge-type {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .step-row:hover { background: #1f2937; }
+    .step-error { border-left: 3px solid #ef4444; }
+    .step-normal { border-left: 3px solid #1d4ed8; }
+    .var-changed { background: #1a3a1a; }
+    .mermaid svg { max-width: 100% !important; }
+    .tab-btn.active { border-bottom: 2px solid #3b82f6; color: #60a5fa; }
+    details summary { cursor: pointer; }
+    details summary::-webkit-details-marker { display: none; }
+  </style>
+</head>
+<body class="min-h-screen font-mono text-sm">
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 px-6 py-3 flex items-center gap-3">
+    <div class="flex items-center gap-2">
+      <div class="w-3 h-3 rounded-full bg-red-500"></div>
+      <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+      <div class="w-3 h-3 rounded-full bg-green-500"></div>
+    </div>
+    <a href="/" class="text-gray-300 hover:text-white font-semibold ml-2 text-base">
+      GC Flow Analyzer
+    </a>
+    <span class="text-gray-600 text-xs ml-auto">Genesys Cloud Architect Execution History</span>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-t border-gray-800 text-center text-gray-600 text-xs py-4 mt-8">
+    GC Flow Analyzer &mdash; reads Genesys Cloud Execution History via Public API
+  </footer>
+
+</body>
+</html>

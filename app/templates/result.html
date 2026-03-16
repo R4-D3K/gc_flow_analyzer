@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Flow Analysis — {{ conversation.conversation_id[:8] }}…{% endblock %}
+
+{% block content %}
+
+<!-- Back link + conversation header -->
+<div class="mb-6 flex items-start gap-4 flex-wrap">
+  <a href="/" class="text-blue-400 hover:text-blue-300 text-xs mt-1">&larr; New analysis</a>
+  <div>
+    <h1 class="text-lg font-bold text-white">
+      Conversation
+      <span class="text-blue-300 font-mono">{{ conversation.conversation_id }}</span>
+    </h1>
+    <div class="flex gap-4 mt-1 text-gray-400 text-xs flex-wrap">
+      {% if conversation.ani %}
+      <span>ANI: <span class="text-gray-200">{{ conversation.ani }}</span></span>
+      {% endif %}
+      {% if conversation.called_address %}
+      <span>DNIS: <span class="text-gray-200">{{ conversation.called_address }}</span></span>
+      {% endif %}
+      {% if conversation.language %}
+      <span>Language: <span class="text-gray-200">{{ conversation.language }}</span></span>
+      {% endif %}
+      <span>Flow instances: <span class="text-gray-200">{{ conversation.instances | length }}</span></span>
+    </div>
+  </div>
+</div>
+
+{% if not conversation.instances %}
+<div class="card border-yellow-800 bg-yellow-950 text-yellow-300 px-4 py-3">
+  No flow execution data found for this conversation.
+  Make sure Execution Data Level is set to <strong>All</strong> in Architect.
+</div>
+{% endif %}
+
+<!-- One tab group per flow instance -->
+{% for inst in conversation.instances %}
+<div class="card mb-8">
+
+  <!-- Instance header -->
+  <div class="px-5 py-4 border-b border-gray-800">
+    <div class="flex items-center gap-3 flex-wrap">
+      <span class="text-white font-semibold text-base">{{ inst.flow_name }}</span>
+      {% if inst.flow_type %}
+      <span class="badge-type bg-blue-900 text-blue-300">{{ inst.flow_type }}</span>
+      {% endif %}
+      {% if inst.flow_version %}
+      <span class="text-gray-500 text-xs">v{{ inst.flow_version }}</span>
+      {% endif %}
+      {% if inst.exit_reason %}
+      <span class="ml-auto badge-type
+        {% if inst.exit_reason in ['DISCONNECT', 'TRANSFER'] %}bg-green-900 text-green-300
+        {% elif 'ERROR' in inst.exit_reason %}bg-red-900 text-red-300
+        {% else %}bg-gray-800 text-gray-400{% endif %}">
+        {{ inst.exit_reason }}
+      </span>
+      {% endif %}
+    </div>
+
+    <div class="mt-2 flex gap-6 text-xs text-gray-500 flex-wrap">
+      <span>Instance: <span class="text-gray-400 font-mono">{{ inst.instance_id }}</span></span>
+      <span>Steps: <span class="text-gray-300 font-semibold">{{ inst.total_steps }}</span></span>
+      {% if inst.start_time %}
+      <span>Start: <span class="text-gray-400">{{ inst.start_time }}</span></span>
+      {% endif %}
+      {% if inst.end_time %}
+      <span>End: <span class="text-gray-400">{{ inst.end_time }}</span></span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Tab navigation -->
+  <div class="flex border-b border-gray-800 px-4 pt-2 gap-4 text-xs font-semibold text-gray-500"
+       id="tabs-{{ loop.index }}">
+    <button class="tab-btn active pb-2 hover:text-gray-300"
+            onclick="switchTab('{{ loop.index }}', 'steps', this)">
+      Steps ({{ inst.total_steps }})
+    </button>
+    <button class="tab-btn pb-2 hover:text-gray-300"
+            onclick="switchTab('{{ loop.index }}', 'vars', this)">
+      Variable Changes ({{ inst.variable_timeline | length }})
+    </button>
+    <button class="tab-btn pb-2 hover:text-gray-300"
+            onclick="switchTab('{{ loop.index }}', 'diagram', this)">
+      Flow Diagram
+    </button>
+  </div>
+
+  <!-- TAB: Steps -->
+  <div id="tab-{{ loop.index }}-steps" class="tab-panel">
+
+    <!-- Filter bar -->
+    <div class="px-4 py-2 border-b border-gray-800">
+      <input
+        type="text"
+        placeholder="Filter steps by name or type…"
+        oninput="filterSteps(this, '{{ loop.index }}')"
+        class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white w-72
+               placeholder-gray-600 focus:outline-none focus:border-blue-500"
+      />
+    </div>
+
+    <!-- Steps table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs" id="steps-table-{{ loop.index }}">
+        <thead>
+          <tr class="text-gray-500 uppercase text-left border-b border-gray-800">
+            <th class="px-4 py-2 w-12">#</th>
+            <th class="px-4 py-2">Action Name</th>
+            <th class="px-4 py-2">Type</th>
+            <th class="px-4 py-2">Duration</th>
+            <th class="px-4 py-2">I/O</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for step in inst.steps %}
+          <tr class="step-row border-b border-gray-900 {% if step.error %}step-error{% else %}step-normal{% endif %}"
+              data-name="{{ step.action_name | lower }}"
+              data-type="{{ step.action_type | lower }}">
+            <td class="px-4 py-2 text-gray-500">{{ step.sequence }}</td>
+            <td class="px-4 py-2">
+              <span class="text-gray-200">{{ step.action_name }}</span>
+              {% if step.error %}
+              <div class="text-red-400 text-xs mt-0.5">&#9888; {{ step.error }}</div>
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if step.action_type %}
+              <span class="badge-type
+                {% if step.action_type | lower in ['decision', 'menu', 'switch'] %}bg-purple-900 text-purple-300
+                {% elif step.action_type | lower in ['transfer', 'disconnect'] %}bg-yellow-900 text-yellow-300
+                {% elif step.action_type | lower == 'dataaction' %}bg-cyan-900 text-cyan-300
+                {% elif step.error %}bg-red-900 text-red-300
+                {% else %}bg-gray-800 text-gray-400{% endif %}">
+                {{ step.action_type }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-2 text-gray-500">
+              {% if step.duration_ms is not none %}
+                {% if step.duration_ms >= 1000 %}
+                  <span class="text-yellow-400">{{ "%.1f" | format(step.duration_ms / 1000) }}s</span>
+                {% else %}
+                  {{ step.duration_ms }}ms
+                {% endif %}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if step.inputs or step.outputs %}
+              <details class="text-gray-500">
+                <summary class="hover:text-gray-300 select-none">
+                  {% if step.inputs %}in:{{ step.inputs | length }}{% endif %}
+                  {% if step.outputs %}out:{{ step.outputs | length }}{% endif %}
+                </summary>
+                <div class="mt-1 pl-2 space-y-1">
+                  {% if step.inputs %}
+                  <div class="text-gray-600 text-xs">Inputs:</div>
+                  {% for k, v in step.inputs.items() %}
+                  <div class="pl-2"><span class="text-blue-400">{{ k }}</span>: <span class="text-gray-300">{{ v }}</span></div>
+                  {% endfor %}
+                  {% endif %}
+                  {% if step.outputs %}
+                  <div class="text-gray-600 text-xs mt-1">Outputs:</div>
+                  {% for k, v in step.outputs.items() %}
+                  <div class="pl-2"><span class="text-green-400">{{ k }}</span>: <span class="text-gray-300">{{ v }}</span></div>
+                  {% endfor %}
+                  {% endif %}
+                </div>
+              </details>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- end tab-steps -->
+
+  <!-- TAB: Variable Changes -->
+  <div id="tab-{{ loop.index }}-vars" class="tab-panel hidden">
+    {% if inst.variable_timeline %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-gray-500 uppercase text-left border-b border-gray-800">
+            <th class="px-4 py-2">Step</th>
+            <th class="px-4 py-2">Action</th>
+            <th class="px-4 py-2">Variable</th>
+            <th class="px-4 py-2">Old Value</th>
+            <th class="px-4 py-2">New Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for change in inst.variable_timeline %}
+          <tr class="var-changed border-b border-gray-900">
+            <td class="px-4 py-2 text-gray-500">{{ change.step_seq }}</td>
+            <td class="px-4 py-2 text-gray-400">{{ change.step_name }}</td>
+            <td class="px-4 py-2 text-blue-300 font-semibold">{{ change.name }}</td>
+            <td class="px-4 py-2 text-gray-500 line-through">
+              {% if change.old_val == 'NOT_SET' %}<em class="no-underline">NOT_SET</em>
+              {% else %}{{ change.old_val }}{% endif %}
+            </td>
+            <td class="px-4 py-2 text-green-300">{{ change.new_val }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="px-5 py-8 text-gray-600 text-center">
+      No variable changes captured. Output variables may not be included in execution data.
+    </div>
+    {% endif %}
+  </div><!-- end tab-vars -->
+
+  <!-- TAB: Mermaid Diagram -->
+  <div id="tab-{{ loop.index }}-diagram" class="tab-panel hidden">
+    <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+      <span class="text-gray-500 text-xs">
+        Showing {% if inst.total_steps > 80 %}first 80 of {{ inst.total_steps }}{% else %}all {{ inst.total_steps }}{% endif %} steps
+      </span>
+      <button onclick="copyMermaid('{{ loop.index }}')"
+              class="text-xs text-blue-400 hover:text-blue-300 border border-gray-700 rounded px-2 py-1">
+        Copy Mermaid source
+      </button>
+    </div>
+
+    <!-- Mermaid diagram -->
+    <div class="px-4 py-4 overflow-x-auto">
+      <div class="mermaid" id="mermaid-{{ loop.index }}">
+{{ inst.mermaid_diagram }}
+      </div>
+    </div>
+
+    <!-- Hidden raw source for copy -->
+    <textarea id="mermaid-src-{{ loop.index }}" class="hidden">{{ inst.mermaid_diagram }}</textarea>
+  </div><!-- end tab-diagram -->
+
+</div><!-- end instance card -->
+{% endfor %}
+
+<script>
+function switchTab(instIdx, tabName, btn) {
+  // Hide all panels for this instance
+  ['steps', 'vars', 'diagram'].forEach(t => {
+    document.getElementById(`tab-${instIdx}-${t}`).classList.add('hidden');
+  });
+  // Deactivate all buttons in this tab group
+  document.querySelectorAll(`#tabs-${instIdx} .tab-btn`).forEach(b => {
+    b.classList.remove('active');
+  });
+  // Show selected panel and activate button
+  document.getElementById(`tab-${instIdx}-${tabName}`).classList.remove('hidden');
+  btn.classList.add('active');
+
+  // Re-render mermaid if diagram tab is selected
+  if (tabName === 'diagram') {
+    mermaid.run({ nodes: [document.getElementById(`mermaid-${instIdx}`)] });
+  }
+}
+
+function filterSteps(input, instIdx) {
+  const filter = input.value.toLowerCase();
+  const rows = document.querySelectorAll(`#steps-table-${instIdx} tbody tr`);
+  rows.forEach(row => {
+    const name = row.dataset.name || '';
+    const type = row.dataset.type || '';
+    row.style.display = (name.includes(filter) || type.includes(filter)) ? '' : 'none';
+  });
+}
+
+function copyMermaid(instIdx) {
+  const src = document.getElementById(`mermaid-src-${instIdx}`).value;
+  navigator.clipboard.writeText(src).then(() => {
+    alert('Mermaid source copied to clipboard!');
+  });
+}
+</script>
+{% endblock %}
