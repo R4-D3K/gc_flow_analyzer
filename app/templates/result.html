@@ -2,6 +2,59 @@
 {% block title %}Flow Analysis — {{ conversation.conversation_id[:8] }}…{% endblock %}
 
 {% block content %}
+<style>
+/* ── Vertical step timeline ───────────────────────────────────── */
+.tl-track { border-left: 2px solid #2d333b; margin-left: 10px; }
+.tl-item  { position: relative; padding: 4px 0 6px 22px; cursor: pointer; }
+.tl-item:hover .tl-body { background: #1a2030; border-radius: 4px; }
+.tl-nested { margin-left: 18px; }
+
+/* Dot on the timeline line */
+.tl-dot {
+  position: absolute; left: -5px; top: 9px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #2a3140; border: 2px solid #3d4a5c;
+}
+.tl-dot-data     { background: #1a2f3f; border-color: #2d5a78; }
+.tl-dot-decision { border-radius: 2px; transform: rotate(45deg); background: #28213a; border-color: #4d3f6e; }
+.tl-dot-transfer { background: #2d2510; border-color: #5c4a1e; }
+.tl-dot-error    { background: #3d1414; border-color: #7a2020; }
+.tl-dot-meta     { background: transparent; border-color: #3d4451; }
+.tl-dot-task     { border-radius: 2px; background: #1e2a3a; border-color: #2d4a6b; }
+
+/* Body */
+.tl-body { padding: 3px 10px 3px 6px; }
+.tl-row1 { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.tl-seq  { color: #4a5568; font-size: 0.65rem; min-width: 26px; }
+.tl-name { color: #cdd9e5; font-weight: 500; font-size: 0.78rem; }
+.tl-name-sub { color: #8b949e; font-weight: 400; }
+.tl-dur  { color: #4a5568; font-size: 0.68rem; margin-left: auto; white-space: nowrap; }
+.tl-dur-med  { color: #b45309; }
+.tl-dur-slow { color: #c2410c; font-weight: 600; }
+.tl-dur-crit { color: #b91c1c; font-weight: 700; }
+.tl-expand-btn {
+  background: none; border: none; color: #4a5568; cursor: pointer;
+  font-size: 0.65rem; padding: 0 3px; line-height: 1;
+}
+.tl-expand-btn:hover { color: #818cf8; }
+.tl-row2 { display: flex; gap: 6px; align-items: center; margin-top: 1px; flex-wrap: wrap; }
+.tl-type  { color: #3d4b5a; font-size: 0.62rem; font-family: monospace; }
+.tl-label { color: #4d5d6e; font-size: 0.62rem; }
+.tl-error-text { color: #c0392b; font-size: 0.68rem; margin-top: 2px; }
+.tl-outputs { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
+.tl-kv {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #161b22; border: 1px solid #2d333b; border-radius: 3px;
+  padding: 0 5px; font-size: 0.62rem; max-width: 220px;
+}
+.tl-kv-key { color: #4a5568; flex-shrink: 0; }
+.tl-kv-sep { color: #2d333b; }
+.tl-kv-val { color: #768390; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-kv-more { color: #3d4b5a; font-size: 0.62rem; padding: 0 3px; }
+.tl-item-error > .tl-dot { background: #3d1414; border-color: #7a2020; border-radius: 50%; transform: none; }
+.tl-item-error .tl-name { color: #c0392b; }
+</style>
 
 {% set action_labels = {
   "startedFlow":                    "Flow started",
@@ -358,8 +411,11 @@
                 data-varname="{{ var_name | lower }}">
               <td class="px-4 py-2.5 align-top w-64">
                 <span class="{{ var_color }} font-semibold font-mono">{{ var_name }}</span>
+                {% set n_changes = (entries | length) - 1 %}
                 <div class="text-gray-600 text-xs mt-0.5">
-                  {{ entries | length }} change{{ 's' if entries | length != 1 }}
+                  {% if n_changes == 0 %}set once
+                  {% elif n_changes == 1 %}1 change
+                  {% else %}{{ n_changes }} changes{% endif %}
                 </div>
               </td>
               <td class="px-4 py-2.5">
@@ -403,40 +459,102 @@
     {% endif %}
   </div><!-- end tab-vars -->
 
-  <!-- TAB: Mermaid Diagram -->
+  <!-- TAB: Flow Timeline -->
   <div id="tab-{{ loop.index }}-diagram" class="tab-panel hidden">
-    <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-3 flex-wrap">
-      <span class="text-gray-500 text-xs">
-        Showing {% if inst.total_steps > 80 %}first 80 of {{ inst.total_steps }}{% else %}all {{ inst.total_steps }}{% endif %} top-level steps
-      </span>
-      <div class="flex items-center gap-1 ml-auto">
-        <button onclick="zoomDiagram('{{ loop.index }}', -0.2)"
-                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">−</button>
-        <button onclick="zoomDiagram('{{ loop.index }}', 0)"
-                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">fit</button>
-        <button onclick="zoomDiagram('{{ loop.index }}', 0.2)"
-                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">+</button>
-        <button onclick="downloadSVG('{{ loop.index }}', '{{ conversation.conversation_id }}')"
-                class="text-xs text-green-400 hover:text-green-300 border border-gray-700 rounded px-2 py-1">
-          ↓ SVG
-        </button>
-        <button onclick="copyMermaid('{{ loop.index }}')"
-                class="text-xs text-blue-400 hover:text-blue-300 border border-gray-700 rounded px-2 py-1">
-          Copy source
-        </button>
+    {% set top_steps = inst.steps | selectattr('depth', 'eq', 0) | list %}
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-3 flex-wrap">
+      <span class="text-gray-600 text-xs">{{ top_steps | length }} top-level steps · click any step for detail</span>
+      <button onclick="copyMermaid('{{ loop.index }}')"
+              class="ml-auto text-xs text-gray-600 hover:text-gray-400 border border-gray-800 rounded px-2 py-1">
+        Copy Mermaid source
+      </button>
+    </div>
+
+    <!-- Vertical step timeline -->
+    <div class="overflow-auto px-5 py-4" style="max-height: 70vh;">
+      <div class="tl-track" id="timeline-{{ loop.index }}">
+        {% for step in inst.steps %}
+        <div class="tl-item{% if step.depth > 0 %} tl-nested{% endif %}{% if step.error %} tl-item-error{% endif %}"
+             data-depth="{{ step.depth }}"
+             data-seq="{{ step.sequence }}"
+             data-parent='{{ step.parent_task | tojson }}'
+             data-action-name='{{ step.action_name | tojson }}'
+             data-action-type='{{ step.action_type | tojson }}'
+             data-duration="{{ step.duration_ms if step.duration_ms is not none else '' }}"
+             data-error='{{ (step.error or "") | tojson }}'
+             data-inputs='{{ step.inputs | tojson }}'
+             data-outputs='{{ step.outputs | tojson }}'
+             data-start='{{ step.start_time }}'
+             data-end='{{ step.end_time }}'
+             {% if step.depth > 0 %}style="display:none"{% endif %}
+             onclick="openPanel(this)">
+
+          {# Dot shape by action type #}
+          <div class="tl-dot
+            {%- if step.error %} tl-dot-error
+            {%- elif step.action_type in ['startedFlow','endedFlow','startedTask','endedTask'] %} tl-dot-meta
+            {%- elif step.action_type == 'actionCallTask' %} tl-dot-task
+            {%- elif step.action_type in ['actionCallData','actionDataTableLookup'] %} tl-dot-data
+            {%- elif step.action_type in ['actionSwitch','actionDecision','actionMenu'] %} tl-dot-decision
+            {%- elif 'transfer' in step.action_type|lower or 'disconnect' in step.action_type|lower %} tl-dot-transfer
+            {%- endif %}"></div>
+
+          <div class="tl-body">
+            <div class="tl-row1">
+              <span class="tl-seq">#{{ step.sequence }}</span>
+              <span class="tl-name{% if step.depth > 0 %} tl-name-sub{% endif %}">{{ step.action_name }}</span>
+
+              {% if step.duration_ms is not none %}
+                {% if step.duration_ms >= 5000 %}
+                  <span class="tl-dur tl-dur-crit" title="Very slow">{{ "%.1f"|format(step.duration_ms/1000) }}s ⚠</span>
+                {% elif step.duration_ms >= 2000 %}
+                  <span class="tl-dur tl-dur-slow">{{ "%.1f"|format(step.duration_ms/1000) }}s</span>
+                {% elif step.duration_ms >= 1000 %}
+                  <span class="tl-dur tl-dur-med">{{ "%.1f"|format(step.duration_ms/1000) }}s</span>
+                {% else %}
+                  <span class="tl-dur">{{ step.duration_ms }}ms</span>
+                {% endif %}
+              {% endif %}
+
+              {% if step.action_type == 'actionCallTask' and step.depth == 0 %}
+              <button class="tl-expand-btn" title="Expand / collapse sub-steps"
+                      onclick="toggleNestedTl(this); event.stopPropagation()">▶</button>
+              {% endif %}
+            </div>
+
+            <div class="tl-row2">
+              <span class="tl-type">{{ step.action_type }}</span>
+              {% set lbl = action_labels.get(step.action_type) %}
+              {% if lbl %}<span class="tl-label">— {{ lbl }}</span>{% endif %}
+            </div>
+
+            {% if step.error %}
+            <div class="tl-error-text">⚠ {{ step.error }}</div>
+            {% endif %}
+
+            {% if step.outputs %}
+            <div class="tl-outputs">
+              {% for k, v in step.outputs.items() %}
+              {% if loop.index <= 3 %}
+              <span class="tl-kv" title="{{ k }}: {{ v }}">
+                <span class="tl-kv-key">{{ k.split('.')[-1] }}</span>
+                <span class="tl-kv-sep">:</span>
+                <span class="tl-kv-val">{{ v if v else 'NOT_SET' }}</span>
+              </span>
+              {% endif %}
+              {% endfor %}
+              {% if step.outputs | length > 3 %}
+              <span class="tl-kv-more">+{{ step.outputs | length - 3 }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
       </div>
     </div>
 
-    <!-- Mermaid diagram — scrollable, zoomable -->
-    <div id="diagram-wrap-{{ loop.index }}"
-         class="overflow-auto bg-gray-950"
-         style="height: 540px; padding: 12px; cursor: grab;">
-      <div class="mermaid" id="mermaid-{{ loop.index }}">
-{{ inst.mermaid_diagram }}
-      </div>
-    </div>
-
-    <!-- Hidden raw source for copy -->
+    <!-- Hidden raw Mermaid source for copy -->
     <textarea id="mermaid-src-{{ loop.index }}" class="hidden">{{ inst.mermaid_diagram }}</textarea>
   </div><!-- end tab-diagram -->
 
@@ -456,72 +574,31 @@
 
 <script>
 // ── Tab switching ──────────────────────────────────────────────────
-async function switchTab(instIdx, tabName, btn) {
+function switchTab(instIdx, tabName, btn) {
   ['steps', 'vars', 'diagram'].forEach(t =>
     document.getElementById(`tab-${instIdx}-${t}`).classList.add('hidden'));
   document.querySelectorAll(`#tabs-${instIdx} .tab-btn`)
           .forEach(b => b.classList.remove('active'));
   document.getElementById(`tab-${instIdx}-${tabName}`).classList.remove('hidden');
   btn.classList.add('active');
+}
 
-  if (tabName === 'diagram') {
-    await renderDiagram(instIdx);
+// ── Timeline nested expand/collapse ──────────────────────────────
+function toggleNestedTl(btn) {
+  const parentItem = btn.closest('.tl-item');
+  const track = parentItem.closest('.tl-track');
+  const items = Array.from(track.querySelectorAll('.tl-item'));
+  const parentIdx = items.indexOf(parentItem);
+  const expanded = btn.textContent.trim() === '▼';
+
+  for (let i = parentIdx + 1; i < items.length; i++) {
+    const depth = parseInt(items[i].dataset.depth || '0', 10);
+    if (depth === 0) break;
+    items[i].style.display = expanded ? 'none' : '';
   }
-}
-
-// ── Mermaid render (once per instance) ───────────────────────────
-const _rendered = {};
-
-async function renderDiagram(instIdx) {
-  const node = document.getElementById(`mermaid-${instIdx}`);
-  if (!node || _rendered[instIdx]) return;
-  try {
-    await mermaid.run({ nodes: [node] });
-    _rendered[instIdx] = true;
-    autoFitDiagram(instIdx);
-  } catch(e) {
-    console.error('Mermaid render error:', e);
-  }
-}
-
-// ── Zoom (resize SVG width/height directly) ───────────────────────
-const _zoomScale = {};
-
-function getSvgOrigSize(instIdx) {
-  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
-  if (!svg) return null;
-  // Cache original dims in data attrs
-  if (!svg.dataset.origW) {
-    const vb = svg.viewBox?.baseVal;
-    svg.dataset.origW = vb?.width  || svg.getBoundingClientRect().width  || 800;
-    svg.dataset.origH = vb?.height || svg.getBoundingClientRect().height || 600;
-  }
-  return { w: parseFloat(svg.dataset.origW), h: parseFloat(svg.dataset.origH) };
-}
-
-function applySvgScale(instIdx, scale) {
-  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
-  const dims = getSvgOrigSize(instIdx);
-  if (!svg || !dims) return;
-  _zoomScale[instIdx] = scale;
-  svg.setAttribute('width',  dims.w * scale);
-  svg.setAttribute('height', dims.h * scale);
-}
-
-function autoFitDiagram(instIdx) {
-  const wrap = document.getElementById(`diagram-wrap-${instIdx}`);
-  const dims = getSvgOrigSize(instIdx);
-  if (!wrap || !dims || !dims.w || !dims.h) return;
-  const padW = wrap.clientWidth  - 24;
-  const padH = wrap.clientHeight - 24;
-  const scale = Math.min(padW / dims.w, padH / dims.h, 1);
-  applySvgScale(instIdx, scale);
-}
-
-function zoomDiagram(instIdx, delta) {
-  if (delta === 0) { autoFitDiagram(instIdx); return; }
-  const cur = _zoomScale[instIdx] || 1;
-  applySvgScale(instIdx, Math.max(0.1, Math.min(5, cur + delta)));
+  btn.textContent = expanded ? '▶' : '▼';
+  btn.classList.toggle('text-indigo-400', !expanded);
+  btn.classList.toggle('text-gray-600', expanded);
 }
 
 // ── Step detail panel ─────────────────────────────────────────────
@@ -706,40 +783,5 @@ function exportVarsCSV(instIdx, convId) {
   downloadCSV(`${convId}_vars_${instIdx}.csv`, rows);
 }
 
-// ── Download SVG ──────────────────────────────────────────────────
-function downloadSVG(instIdx, convId) {
-  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
-  if (!svg) { alert('Open the Flow Diagram tab first to render the diagram.'); return; }
-  const src = '<?xml version="1.0" encoding="UTF-8"?>\n'
-            + new XMLSerializer().serializeToString(svg);
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(new Blob([src], { type: 'image/svg+xml' })),
-    download: `${convId}_diagram_${instIdx}.svg`,
-  });
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-// ── Pan (click+drag to scroll) ────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('[id^="diagram-wrap-"]').forEach(wrap => {
-    let drag = false, sx = 0, sy = 0, sl = 0, st = 0;
-    wrap.addEventListener('mousedown', e => {
-      drag = true; wrap.style.cursor = 'grabbing';
-      sx = e.pageX; sy = e.pageY; sl = wrap.scrollLeft; st = wrap.scrollTop;
-    });
-    wrap.addEventListener('mouseup',   () => { drag = false; wrap.style.cursor = 'grab'; });
-    wrap.addEventListener('mouseleave',() => { drag = false; wrap.style.cursor = 'grab'; });
-    wrap.addEventListener('mousemove', e => {
-      if (!drag) return;
-      wrap.scrollLeft = sl - (e.pageX - sx);
-      wrap.scrollTop  = st - (e.pageY - sy);
-    });
-    wrap.addEventListener('wheel', e => {
-      e.preventDefault();
-      zoomDiagram(wrap.id.replace('diagram-wrap-', ''), e.deltaY < 0 ? 0.1 : -0.1);
-    }, { passive: false });
-  });
-});
 </script>
 {% endblock %}
