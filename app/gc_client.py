@@ -9,6 +9,7 @@ import time
 import logging
 from typing import Optional
 
+import httpx
 import PureCloudPlatformClientV2 as gc
 from PureCloudPlatformClientV2.rest import ApiException
 
@@ -168,41 +169,85 @@ def _safe_dt(val) -> str:
     return str(val)
 
 
-def _start_execution_data_job(api_client: gc.ApiClient, instance_id: str) -> str:
+def _start_execution_data_job(api_client: gc.ApiClient, instance_id: str) -> tuple[str, dict | None]:
     """
-    Start an async job to download execution data for a flow instance.
-    Returns the jobId.
+    Start (or resume) an async job to prepare execution data for a flow instance.
+    Returns (job_id, execution_data_or_None).
+    If the job is already fulfilled on first call, returns data immediately.
     """
     flow_api = gc.ArchitectApi(api_client)
     try:
         result = flow_api.get_flows_instance(instance_id, expand="execution")
-        job_id = result.job_id if hasattr(result, "job_id") else (result.to_dict().get("job_id") or result.to_dict().get("jobId"))
+        result_dict = result.to_dict()
+        job_id = result_dict.get("id")
+        job_state = (result_dict.get("job_state") or "").upper()
+        entities = result_dict.get("entities") or []
+        logger.info(
+            "get_flows_instance: job_id=%s job_state=%s entities=%d",
+            job_id, job_state, len(entities)
+        )
         if not job_id:
-            raise GCClientError("No jobId returned when starting execution data job.")
-        logger.info("Started execution job %s for instance %s", job_id, instance_id)
-        return job_id
+            raise GCClientError("No job id returned when starting execution data job.")
+
+        # If already fulfilled on first call, download immediately
+        if job_state in ("FULFILLED", "SUCCESS") and entities:
+            entity = entities[0]
+            if entity.get("download_uri"):
+                logger.info("Job already fulfilled, downloading immediately")
+                return job_id, _download_execution_data(entity["download_uri"])
+
+        return job_id, None
     except ApiException as e:
         raise GCClientError(
             f"Failed to start execution job for instance '{instance_id}': {e.status} {e.reason}"
         ) from e
 
 
+def _download_execution_data(download_uri: str) -> dict:
+    """Download execution data JSON from the pre-signed URI returned by the job."""
+    logger.info("Downloading execution data from URI: %s", download_uri[:80])
+    try:
+        response = httpx.get(download_uri, timeout=30.0, follow_redirects=True)
+        response.raise_for_status()
+        data = response.json()
+        logger.info("Execution data downloaded, top-level keys: %s", list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+        return data
+    except Exception as e:
+        raise GCClientError(f"Failed to download execution data: {e}") from e
+
+
 def _poll_job(api_client: gc.ApiClient, job_id: str) -> dict:
     """
-    Poll the job endpoint until it completes. Returns the execution data dict.
+    Poll the job endpoint until it completes.
+    Returns the downloaded execution data JSON dict.
+    GetFlowExecutionDataJobResult uses 'job_state' (not 'status') and
+    delivers a download_uri in entities[0] when fulfilled.
     """
     flow_api = gc.ArchitectApi(api_client)
     for attempt in range(_POLL_MAX_ATTEMPTS):
         try:
             result = flow_api.get_flows_instances_job(job_id)
             result_dict = result.to_dict()
-            status = result_dict.get("status", "").upper()
-            logger.debug("Job %s status: %s (attempt %d)", job_id, status, attempt + 1)
+            job_state = result_dict.get("job_state", "").upper()
+            logger.info("Job %s state: %s (attempt %d)", job_id, job_state, attempt + 1)
 
-            if status == "FULFILLED":
-                return result_dict
-            if status in ("FAILED", "ERROR", "CANCELLED"):
-                raise GCClientError(f"Execution data job failed with status: {status}")
+            if job_state in ("FULFILLED", "SUCCESS"):
+                entities = result_dict.get("entities") or []
+                if not entities:
+                    raise GCClientError("Job fulfilled but no entities in result.")
+                entity = entities[0]
+                logger.info("Job fulfilled, entity keys: %s", list(entity.keys()))
+                if entity.get("failed"):
+                    raise GCClientError(
+                        f"Execution data entity failed: {entity.get('status_code', 'unknown')}"
+                    )
+                download_uri = entity.get("download_uri")
+                if not download_uri:
+                    raise GCClientError("Job fulfilled but entity has no download_uri.")
+                return _download_execution_data(download_uri)
+
+            if job_state in ("FAILED", "ERROR", "CANCELLED"):
+                raise GCClientError(f"Execution data job failed with state: {job_state}")
 
             time.sleep(_POLL_INTERVAL)
         except ApiException as e:
@@ -310,8 +355,9 @@ def get_flow_execution_data(conversation_id: str) -> dict:
         instance_id = inst["flowInstanceId"]
         logger.info("Fetching execution data for instance %s (%s)", instance_id, inst.get("flowName", ""))
 
-        job_id = _start_execution_data_job(api_client, instance_id)
-        execution_data = _poll_job(api_client, job_id)
+        job_id, execution_data = _start_execution_data_job(api_client, instance_id)
+        if execution_data is None:
+            execution_data = _poll_job(api_client, job_id)
 
         results.append({
             "instanceMeta": inst,
