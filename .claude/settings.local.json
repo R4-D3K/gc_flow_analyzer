@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(curl -s http://127.0.0.1:8000/health)",
+      "Bash(curl -s http://127.0.0.1:8000/api/debug/a6d9c024-11bc-402f-9218-9afd852c6e60)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); flow=d.get\\(''''stages'''',{}\\).get\\(''''conversationDetails'''',{}\\) or {}; jobs=d.get\\(''''stages'''',{}\\).get\\(''''executionJobs'''',[]\\); print\\(''''INSTANCES:'''', json.dumps\\(d.get\\(''''stages'''',{}\\).get\\(''''extractedInstances''''\\), indent=2\\)\\); [print\\(''''JOB keys:'''', list\\(j.keys\\(\\)\\)\\) for j in jobs]\")",
+      "Bash(curl -s http://127.0.0.1:8000/api/analyze/a6d9c024-11bc-402f-9218-9afd852c6e60)",
+      "Bash(python -c \":*)",
+      "Bash(curl -s http://127.0.0.1:8000/api/rawsteps/a6d9c024-11bc-402f-9218-9afd852c6e60)",
+      "Bash(curl -s http://127.0.0.1:8000/api/rawsteps/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)",
+      "Bash(curl -s http://127.0.0.1:8000/api/analyze/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)"
     ]
   }
 }
