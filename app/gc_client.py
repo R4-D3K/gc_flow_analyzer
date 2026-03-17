@@ -22,13 +22,31 @@ _POLL_INTERVAL = 2
 # Maximum number of poll attempts before giving up (~60 seconds total)
 _POLL_MAX_ATTEMPTS = 30
 
+# Token cache: reuse the same ApiClient until the token expires
+_cached_api_client: Optional[gc.ApiClient] = None
+_token_expires_at: float = 0.0
+# Refresh 60 s before actual expiry to avoid edge-case 401s
+_TOKEN_EXPIRY_SECONDS = 3600
+_TOKEN_REFRESH_BUFFER = 60
+
 
 class GCClientError(Exception):
     """Raised when a Genesys Cloud API call fails."""
 
 
 def _get_api_client() -> gc.ApiClient:
-    """Authenticate via Client Credentials and return a configured ApiClient."""
+    """
+    Return an authenticated ApiClient, reusing a cached one if the token is
+    still valid.  GC Client Credentials tokens are valid for ~1 hour.
+    """
+    global _cached_api_client, _token_expires_at
+
+    now = time.monotonic()
+    if _cached_api_client is not None and now < _token_expires_at:
+        logger.debug("Reusing cached GC token (expires in %.0fs)", _token_expires_at - now)
+        return _cached_api_client
+
+    logger.info("Obtaining new GC access token")
     gc.configuration.host = f"https://api.{GC_ENVIRONMENT}"
     api_client = gc.api_client.ApiClient()
 
@@ -37,7 +55,10 @@ def _get_api_client() -> gc.ApiClient:
             GC_CLIENT_ID, GC_CLIENT_SECRET
         )
         api_client.set_default_header("Authorization", f"Bearer {token_response.access_token}")
-        logger.info("Genesys Cloud authentication successful")
+        _cached_api_client = api_client
+        _token_expires_at = now + _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER
+        logger.info("Genesys Cloud authentication successful, token cached for %ds",
+                    _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER)
         return api_client
     except ApiException as e:
         raise GCClientError(f"Authentication failed: {e.status} {e.reason}") from e

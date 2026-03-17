@@ -3,12 +3,18 @@ GC Flow Analyzer — FastAPI application entry point.
 """
 
 import logging
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 from app.gc_client import get_flow_execution_data, get_raw_debug_data, GCClientError
 from app.flow_parser import parse_execution_data, _flatten_execution_items
@@ -47,6 +53,16 @@ async def analyze(request: Request, conversation_id: str = Form(...)):
         return templates.TemplateResponse(
             "index.html",
             {"request": request, "error": "Please enter a Conversation ID."},
+        )
+
+    if not _UUID_RE.match(conversation_id):
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "error": "Invalid Conversation ID format. Expected a UUID like: f3ba9cc0-6475-4c6f-ad67-d431c75e27d5",
+                "last_id": conversation_id,
+            },
         )
 
     logger.info("Analyzing conversation: %s", conversation_id)
@@ -170,6 +186,15 @@ async def debug_raw(conversation_id: str):
     except Exception as e:
         logger.exception("Unexpected error in debug endpoint for %s", conversation_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/analyze/{conversation_id}", response_class=HTMLResponse)
+async def analyze_get(request: Request, conversation_id: str):
+    """Shareable GET route — same as POST /analyze but via URL."""
+    if not _UUID_RE.match(conversation_id.strip()):
+        return RedirectResponse(url="/")
+    # Reuse the POST handler logic by calling it directly
+    return await analyze(request, conversation_id=conversation_id)
 
 
 @app.get("/health")

@@ -61,6 +61,12 @@
     <p class="text-gray-600 text-xs mt-2">This may take a few seconds while the async job completes.</p>
   </div>
 
+  <!-- Recent conversations -->
+  <div id="recentSection" class="mt-6 hidden">
+    <div class="text-gray-600 text-xs uppercase tracking-wider mb-2">Recent</div>
+    <div id="recentList" class="flex flex-col gap-1"></div>
+  </div>
+
   <!-- Tips -->
   <div class="mt-8 text-gray-600 text-xs space-y-1">
     <p>&#x2022; Find the Conversation ID in <strong class="text-gray-500">Analytics &gt; Conversation Detail</strong> or in the Architect Execution History panel.</p>
@@ -70,10 +76,57 @@
 </div>
 
 <script>
+  const RECENT_KEY = 'gc_recent_ids';
+  const MAX_RECENT = 10;
+
+  function getRecent() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); }
+    catch { return []; }
+  }
+
+  function saveRecent(id) {
+    const list = [id, ...getRecent().filter(x => x !== id)].slice(0, MAX_RECENT);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  }
+
+  function renderRecent() {
+    const list = getRecent();
+    const section = document.getElementById('recentSection');
+    const container = document.getElementById('recentList');
+    if (!list.length) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    container.innerHTML = list.map(id => `
+      <div class="flex items-center gap-2 group">
+        <button onclick="useRecent('${id}')"
+                class="flex-1 text-left text-xs font-mono text-gray-400 hover:text-blue-300
+                       bg-gray-900 border border-gray-800 rounded px-3 py-1.5 truncate">
+          ${id}
+        </button>
+        <button onclick="removeRecent('${id}')"
+                class="text-gray-700 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100">✕</button>
+      </div>`).join('');
+  }
+
+  function useRecent(id) {
+    document.querySelector('input[name=conversation_id]').value = id;
+    document.querySelector('input[name=conversation_id]').focus();
+  }
+
+  function removeRecent(id) {
+    const list = getRecent().filter(x => x !== id);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+    renderRecent();
+  }
+
+  // Save ID on successful submit (page will reload to /analyze so we save before leaving)
   document.getElementById("analyzeForm").addEventListener("submit", () => {
+    const id = document.querySelector('input[name=conversation_id]').value.trim();
+    if (id) saveRecent(id);
     document.getElementById("submitBtn").disabled = true;
     document.getElementById("submitBtn").textContent = "Analyzing…";
     document.getElementById("loadingBar").classList.remove("hidden");
   });
+
+  renderRecent();
 </script>
 {% endblock %}
