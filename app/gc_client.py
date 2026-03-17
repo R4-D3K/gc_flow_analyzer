@@ -114,6 +114,41 @@ def _extract_flow_instance_ids(conversation_details: dict) -> list[dict]:
     return instances
 
 
+def _lookup_instances_by_conversation(api_client: gc.ApiClient, conversation_id: str) -> list[dict]:
+    """
+    Fallback: query Flows Instances API directly by conversationId.
+    Used when analytics conversation details don't include flow_instance_id
+    (e.g. when execution data logging was enabled but analytics haven't propagated yet,
+    or when the SDK omits the field).
+    """
+    flow_api = gc.ArchitectApi(api_client)
+    try:
+        result = flow_api.get_flows_instances(conversation_id=conversation_id, page_size=25)
+        result_dict = result.to_dict()
+        logger.info("get_flows_instances fallback: top-level keys=%s", list(result_dict.keys()))
+        entities = result_dict.get("entities") or []
+        logger.info("get_flows_instances fallback: %d entity(ies)", len(entities))
+        instances = []
+        for ent in entities:
+            logger.info("  entity keys=%s", list(ent.keys()))
+            instance_id = ent.get("id") or ent.get("flow_instance_id")
+            if instance_id and instance_id not in [i["flowInstanceId"] for i in instances]:
+                instances.append({
+                    "flowInstanceId": instance_id,
+                    "flowId": ent.get("flow_id", ""),
+                    "flowName": ent.get("flow_name", ""),
+                    "flowType": ent.get("flow_type", ""),
+                    "flowVersion": ent.get("flow_version", ""),
+                    "startTime": ent.get("date_launched") or ent.get("start_date_time", ""),
+                    "endTime": ent.get("date_completed") or ent.get("end_date_time", ""),
+                    "exitReason": "",
+                })
+        return instances
+    except ApiException as e:
+        logger.warning("get_flows_instances fallback failed: %s %s", e.status, e.reason)
+        return []
+
+
 def _start_execution_data_job(api_client: gc.ApiClient, instance_id: str) -> str:
     """
     Start an async job to download execution data for a flow instance.
@@ -236,11 +271,16 @@ def get_flow_execution_data(conversation_id: str) -> dict:
     instances = _extract_flow_instance_ids(conv_details)
 
     if not instances:
+        # Analytics API didn't include flow_instance_id — try Flows Instances API directly
+        logger.info("Analytics returned no flow_instance_id, trying Flows Instances API fallback")
+        instances = _lookup_instances_by_conversation(api_client, conversation_id)
+
+    if not instances:
         raise GCClientError(
             f"No flow execution instances found for conversation '{conversation_id}'. "
-            "The conversation passed through a flow, but no flow_instance_id was returned — "
-            "Execution Data logging must be enabled in Architect: "
-            "flow Settings → Execution Data → set to 'All', then publish and test a new call."
+            "The conversation passed through a flow, but no execution instance ID was found. "
+            "Check that Execution Data logging is enabled in Architect "
+            "(flow Settings → Execution Data → 'All') and the flow has been published after that change."
         )
 
     logger.info("Found %d flow instance(s)", len(instances))
