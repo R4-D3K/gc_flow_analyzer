@@ -447,7 +447,7 @@ def generate_mermaid(steps: list[FlowStep]) -> str:
     if not top_level:
         return "flowchart TD\n    A[No execution steps found]"
 
-    lines = ["flowchart TD"]
+    lines = ["flowchart LR"]
 
     # Limit to first 80 top-level steps to keep diagram readable
     display_steps = top_level[:80]

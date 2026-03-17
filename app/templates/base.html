@@ -30,9 +30,9 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       mermaid.initialize({
-        startOnLoad: true,
+        startOnLoad: false,
         theme: 'dark',
-        flowchart: { curve: 'basis', useMaxWidth: true },
+        flowchart: { curve: 'basis' },
         securityLevel: 'loose',
       });
     });
@@ -54,7 +54,7 @@
     .step-error { border-left: 3px solid #ef4444; }
     .step-normal { border-left: 3px solid #1d4ed8; }
     .var-changed { background: #1a3a1a; }
-    .mermaid svg { max-width: 100% !important; }
+    .mermaid svg { display: block; }
     .tab-btn.active { border-bottom: 2px solid #3b82f6; color: #60a5fa; }
     details summary { cursor: pointer; }
     details summary::-webkit-details-marker { display: none; }

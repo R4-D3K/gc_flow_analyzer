@@ -3,6 +3,51 @@
 
 {% block content %}
 
+{% set action_labels = {
+  "startedFlow":                    "Flow started",
+  "endedFlow":                      "Flow ended",
+  "startedTask":                    "Task started",
+  "endedTask":                      "Task ended",
+  "actionCallTask":                 "Call reusable task",
+  "actionCallData":                 "Data Action — external API call",
+  "actionDataTableLookup":          "Look up row in Data Table",
+  "actionUpdateData":               "Set / update flow variables",
+  "actionGetParticipantData":       "Read participant attributes",
+  "actionSetParticipantData":       "Set participant attributes",
+  "actionSwitch":                   "Switch — multi-branch routing",
+  "actionDecision":                 "Decision — if / else branch",
+  "actionMenu":                     "DTMF / speech menu",
+  "actionPlayAudio":                "Play audio to caller",
+  "actionHoldMusic":                "Play hold music",
+  "actionCollectDigits":            "Collect DTMF digits",
+  "actionTransferToAcd":            "Transfer to ACD queue",
+  "actionTransferToVoicemail":      "Transfer to voicemail",
+  "actionTransferToUser":           "Transfer to agent",
+  "actionTransferToUsers":          "Transfer to agents",
+  "actionTransferToFlow":           "Transfer to another flow",
+  "actionTransferToFlowSecure":     "Secure transfer to flow",
+  "actionTransferToExternalTrunk":  "Transfer to external trunk",
+  "actionDisconnect":               "Disconnect call",
+  "actionEndTask":                  "End task",
+  "actionEndFlow":                  "End flow",
+  "actionJumpToTask":               "Jump to task",
+  "actionEvaluateScheduleGroup":    "Evaluate schedule group (open / closed)",
+  "actionEvaluateSchedule":         "Evaluate schedule",
+  "actionCallLexBot":               "Call Amazon Lex bot",
+  "actionCallDialogflowBot":        "Call Dialogflow bot",
+  "actionCallNuanceBot":            "Call Nuance bot",
+  "actionSetLanguage":              "Set language",
+  "actionSetScreenPop":             "Set screen pop data",
+  "actionGetExternalContact":       "Fetch external contact",
+  "actionCreateExternalContact":    "Create external contact",
+  "actionUpdateExternalContact":    "Update external contact",
+  "actionSendAutoReply":            "Send auto-reply (messaging)",
+  "actionSendResponse":             "Send message response",
+  "actionDetectSilence":            "Detect silence",
+  "actionClearSlot":                "Clear bot slot",
+  "actionSetVariable":              "Set variable",
+} %}
+
 <!-- Back link + conversation header -->
 <div class="mb-6 flex items-start gap-4 flex-wrap">
   <a href="/" class="text-blue-400 hover:text-blue-300 text-xs mt-1">&larr; New analysis</a>
@@ -90,7 +135,7 @@
   <div id="tab-{{ loop.index }}-steps" class="tab-panel">
 
     <!-- Filter bar -->
-    <div class="px-4 py-2 border-b border-gray-800">
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-3 flex-wrap">
       <input
         type="text"
         placeholder="Filter steps by name or type…"
@@ -98,6 +143,10 @@
         class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white w-72
                placeholder-gray-600 focus:outline-none focus:border-blue-500"
       />
+      <button onclick="exportStepsCSV('{{ loop.index }}', '{{ conversation.conversation_id }}')"
+              class="ml-auto text-xs text-green-400 hover:text-green-300 border border-gray-700 rounded px-2 py-1">
+        ↓ Export CSV
+      </button>
     </div>
 
     <!-- Steps table -->
@@ -116,7 +165,16 @@
           {% for step in inst.steps %}
           <tr class="step-row border-b border-gray-900 {% if step.error %}step-error{% elif step.depth > 0 %}bg-gray-950{% else %}step-normal{% endif %}"
               data-name="{{ step.action_name | lower }}"
-              data-type="{{ step.action_type | lower }}">
+              data-type="{{ step.action_type | lower }}"
+              data-seq="{{ step.sequence }}"
+              data-depth="{{ step.depth }}"
+              data-parent='{{ step.parent_task | tojson }}'
+              data-action-name='{{ step.action_name | tojson }}'
+              data-action-type='{{ step.action_type | tojson }}'
+              data-duration="{{ step.duration_ms if step.duration_ms is not none else '' }}"
+              data-error='{{ (step.error or "") | tojson }}'
+              data-inputs='{{ step.inputs | tojson }}'
+              data-outputs='{{ step.outputs | tojson }}'>
             <td class="px-4 py-2 text-gray-500">
               {% if step.depth > 0 %}<span class="text-gray-700">{{ "┗" * step.depth }}</span>{% endif %}{{ step.sequence }}
             </td>
@@ -125,6 +183,10 @@
               <span class="text-gray-200">{{ step.action_name }}</span>
               {% else %}
               <span class="text-gray-200 font-medium">{{ step.action_name }}</span>
+              {% endif %}
+              {% set lbl = action_labels.get(step.action_type) %}
+              {% if lbl %}
+              <div class="text-gray-600 text-xs leading-tight">{{ lbl }}</div>
               {% endif %}
               {% if step.error %}
               <div class="text-red-400 text-xs mt-0.5">&#9888; {{ step.error }}</div>
@@ -190,8 +252,14 @@
   <!-- TAB: Variable Changes -->
   <div id="tab-{{ loop.index }}-vars" class="tab-panel hidden">
     {% if inst.variable_timeline %}
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center">
+      <button onclick="exportVarsCSV('{{ loop.index }}', '{{ conversation.conversation_id }}')"
+              class="ml-auto text-xs text-green-400 hover:text-green-300 border border-gray-700 rounded px-2 py-1">
+        ↓ Export CSV
+      </button>
+    </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-xs">
+      <table class="w-full text-xs" id="vars-table-{{ loop.index }}">
         <thead>
           <tr class="text-gray-500 uppercase text-left border-b border-gray-800">
             <th class="px-4 py-2">Step</th>
@@ -226,18 +294,32 @@
 
   <!-- TAB: Mermaid Diagram -->
   <div id="tab-{{ loop.index }}-diagram" class="tab-panel hidden">
-    <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+    <div class="px-4 py-3 border-b border-gray-800 flex items-center gap-3 flex-wrap">
       <span class="text-gray-500 text-xs">
-        Showing {% if inst.total_steps > 80 %}first 80 of {{ inst.total_steps }}{% else %}all {{ inst.total_steps }}{% endif %} steps
+        Showing {% if inst.total_steps > 80 %}first 80 of {{ inst.total_steps }}{% else %}all {{ inst.total_steps }}{% endif %} top-level steps
       </span>
-      <button onclick="copyMermaid('{{ loop.index }}')"
-              class="text-xs text-blue-400 hover:text-blue-300 border border-gray-700 rounded px-2 py-1">
-        Copy Mermaid source
-      </button>
+      <div class="flex items-center gap-1 ml-auto">
+        <button onclick="zoomDiagram('{{ loop.index }}', -0.2)"
+                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">−</button>
+        <button onclick="zoomDiagram('{{ loop.index }}', 0)"
+                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">fit</button>
+        <button onclick="zoomDiagram('{{ loop.index }}', 0.2)"
+                class="text-xs text-gray-400 hover:text-white border border-gray-700 rounded px-2 py-1">+</button>
+        <button onclick="downloadSVG('{{ loop.index }}', '{{ conversation.conversation_id }}')"
+                class="text-xs text-green-400 hover:text-green-300 border border-gray-700 rounded px-2 py-1">
+          ↓ SVG
+        </button>
+        <button onclick="copyMermaid('{{ loop.index }}')"
+                class="text-xs text-blue-400 hover:text-blue-300 border border-gray-700 rounded px-2 py-1">
+          Copy source
+        </button>
+      </div>
     </div>
 
-    <!-- Mermaid diagram -->
-    <div class="px-4 py-4 overflow-x-auto">
+    <!-- Mermaid diagram — scrollable, zoomable -->
+    <div id="diagram-wrap-{{ loop.index }}"
+         class="overflow-auto bg-gray-950"
+         style="height: 540px; padding: 12px; cursor: grab;">
       <div class="mermaid" id="mermaid-{{ loop.index }}">
 {{ inst.mermaid_diagram }}
       </div>
@@ -251,40 +333,181 @@
 {% endfor %}
 
 <script>
-function switchTab(instIdx, tabName, btn) {
-  // Hide all panels for this instance
-  ['steps', 'vars', 'diagram'].forEach(t => {
-    document.getElementById(`tab-${instIdx}-${t}`).classList.add('hidden');
-  });
-  // Deactivate all buttons in this tab group
-  document.querySelectorAll(`#tabs-${instIdx} .tab-btn`).forEach(b => {
-    b.classList.remove('active');
-  });
-  // Show selected panel and activate button
+// ── Tab switching ──────────────────────────────────────────────────
+async function switchTab(instIdx, tabName, btn) {
+  ['steps', 'vars', 'diagram'].forEach(t =>
+    document.getElementById(`tab-${instIdx}-${t}`).classList.add('hidden'));
+  document.querySelectorAll(`#tabs-${instIdx} .tab-btn`)
+          .forEach(b => b.classList.remove('active'));
   document.getElementById(`tab-${instIdx}-${tabName}`).classList.remove('hidden');
   btn.classList.add('active');
 
-  // Re-render mermaid if diagram tab is selected
   if (tabName === 'diagram') {
-    mermaid.run({ nodes: [document.getElementById(`mermaid-${instIdx}`)] });
+    await renderDiagram(instIdx);
   }
 }
 
+// ── Mermaid render (once per instance) ───────────────────────────
+const _rendered = {};
+
+async function renderDiagram(instIdx) {
+  const node = document.getElementById(`mermaid-${instIdx}`);
+  if (!node || _rendered[instIdx]) return;
+  try {
+    await mermaid.run({ nodes: [node] });
+    _rendered[instIdx] = true;
+    autoFitDiagram(instIdx);
+  } catch(e) {
+    console.error('Mermaid render error:', e);
+  }
+}
+
+// ── Zoom (resize SVG width/height directly) ───────────────────────
+const _zoomScale = {};
+
+function getSvgOrigSize(instIdx) {
+  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
+  if (!svg) return null;
+  // Cache original dims in data attrs
+  if (!svg.dataset.origW) {
+    const vb = svg.viewBox?.baseVal;
+    svg.dataset.origW = vb?.width  || svg.getBoundingClientRect().width  || 800;
+    svg.dataset.origH = vb?.height || svg.getBoundingClientRect().height || 600;
+  }
+  return { w: parseFloat(svg.dataset.origW), h: parseFloat(svg.dataset.origH) };
+}
+
+function applySvgScale(instIdx, scale) {
+  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
+  const dims = getSvgOrigSize(instIdx);
+  if (!svg || !dims) return;
+  _zoomScale[instIdx] = scale;
+  svg.setAttribute('width',  dims.w * scale);
+  svg.setAttribute('height', dims.h * scale);
+}
+
+function autoFitDiagram(instIdx) {
+  const wrap = document.getElementById(`diagram-wrap-${instIdx}`);
+  const dims = getSvgOrigSize(instIdx);
+  if (!wrap || !dims || !dims.w || !dims.h) return;
+  const padW = wrap.clientWidth  - 24;
+  const padH = wrap.clientHeight - 24;
+  const scale = Math.min(padW / dims.w, padH / dims.h, 1);
+  applySvgScale(instIdx, scale);
+}
+
+function zoomDiagram(instIdx, delta) {
+  if (delta === 0) { autoFitDiagram(instIdx); return; }
+  const cur = _zoomScale[instIdx] || 1;
+  applySvgScale(instIdx, Math.max(0.1, Math.min(5, cur + delta)));
+}
+
+// ── Step filter ───────────────────────────────────────────────────
 function filterSteps(input, instIdx) {
   const filter = input.value.toLowerCase();
-  const rows = document.querySelectorAll(`#steps-table-${instIdx} tbody tr`);
-  rows.forEach(row => {
-    const name = row.dataset.name || '';
-    const type = row.dataset.type || '';
-    row.style.display = (name.includes(filter) || type.includes(filter)) ? '' : 'none';
+  document.querySelectorAll(`#steps-table-${instIdx} tbody tr`).forEach(row => {
+    const match = (row.dataset.name || '').includes(filter)
+               || (row.dataset.type || '').includes(filter);
+    row.style.display = match ? '' : 'none';
   });
 }
 
+// ── Copy source ───────────────────────────────────────────────────
 function copyMermaid(instIdx) {
-  const src = document.getElementById(`mermaid-src-${instIdx}`).value;
-  navigator.clipboard.writeText(src).then(() => {
-    alert('Mermaid source copied to clipboard!');
-  });
+  navigator.clipboard.writeText(
+    document.getElementById(`mermaid-src-${instIdx}`).value
+  ).then(() => alert('Mermaid source copied!'));
 }
+
+// ── CSV helper ────────────────────────────────────────────────────
+function downloadCSV(filename, rows) {
+  const csv = rows.map(row =>
+    row.map(val => {
+      const s = String(val ?? '').replace(/"/g, '""');
+      return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s}"` : s;
+    }).join(',')
+  ).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob), download: filename
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Export Steps CSV ──────────────────────────────────────────────
+function exportStepsCSV(instIdx, convId) {
+  const rows = [['#', 'Depth', 'Parent Task', 'Action Name', 'Action Type',
+                 'Duration (ms)', 'Inputs', 'Outputs', 'Error']];
+  document.querySelectorAll(`#steps-table-${instIdx} tbody tr`).forEach(row => {
+    const inp = row.dataset.inputs  ? Object.entries(JSON.parse(row.dataset.inputs))
+                                            .map(([k,v]) => `${k}=${v}`).join('; ') : '';
+    const out = row.dataset.outputs ? Object.entries(JSON.parse(row.dataset.outputs))
+                                            .map(([k,v]) => `${k}=${v}`).join('; ') : '';
+    rows.push([
+      row.dataset.seq        || '',
+      row.dataset.depth      || '0',
+      JSON.parse(row.dataset.parent      || '""'),
+      JSON.parse(row.dataset.actionName  || '""'),
+      JSON.parse(row.dataset.actionType  || '""'),
+      row.dataset.duration   || '',
+      inp, out,
+      JSON.parse(row.dataset.error       || '""'),
+    ]);
+  });
+  downloadCSV(`${convId}_steps_${instIdx}.csv`, rows);
+}
+
+// ── Export Variable Changes CSV ───────────────────────────────────
+function exportVarsCSV(instIdx, convId) {
+  const rows = [['Step #', 'Action', 'Variable', 'Old Value', 'New Value']];
+  document.querySelectorAll(`#vars-table-${instIdx} tbody tr`).forEach(row => {
+    const cells = row.querySelectorAll('td');
+    rows.push([
+      cells[0]?.textContent?.trim() || '',
+      cells[1]?.textContent?.trim() || '',
+      cells[2]?.textContent?.trim() || '',
+      cells[3]?.textContent?.trim() || '',
+      cells[4]?.textContent?.trim() || '',
+    ]);
+  });
+  downloadCSV(`${convId}_vars_${instIdx}.csv`, rows);
+}
+
+// ── Download SVG ──────────────────────────────────────────────────
+function downloadSVG(instIdx, convId) {
+  const svg = document.querySelector(`#mermaid-${instIdx} svg`);
+  if (!svg) { alert('Open the Flow Diagram tab first to render the diagram.'); return; }
+  const src = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            + new XMLSerializer().serializeToString(svg);
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([src], { type: 'image/svg+xml' })),
+    download: `${convId}_diagram_${instIdx}.svg`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Pan (click+drag to scroll) ────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[id^="diagram-wrap-"]').forEach(wrap => {
+    let drag = false, sx = 0, sy = 0, sl = 0, st = 0;
+    wrap.addEventListener('mousedown', e => {
+      drag = true; wrap.style.cursor = 'grabbing';
+      sx = e.pageX; sy = e.pageY; sl = wrap.scrollLeft; st = wrap.scrollTop;
+    });
+    wrap.addEventListener('mouseup',   () => { drag = false; wrap.style.cursor = 'grab'; });
+    wrap.addEventListener('mouseleave',() => { drag = false; wrap.style.cursor = 'grab'; });
+    wrap.addEventListener('mousemove', e => {
+      if (!drag) return;
+      wrap.scrollLeft = sl - (e.pageX - sx);
+      wrap.scrollTop  = st - (e.pageY - sy);
+    });
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoomDiagram(wrap.id.replace('diagram-wrap-', ''), e.deltaY < 0 ? 0.1 : -0.1);
+    }, { passive: false });
+  });
+});
 </script>
 {% endblock %}

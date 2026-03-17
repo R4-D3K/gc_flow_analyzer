@@ -379,7 +379,9 @@ def get_flow_execution_data(conversation_id: str) -> dict:
             "(flow Settings → Execution Data → 'All') and the flow has been published after that change."
         )
 
-    logger.info("Found %d flow instance(s)", len(instances))
+    # Sort chronologically — main flow starts first, inqueue/secondary flows later
+    instances.sort(key=lambda i: i.get("startTime") or "")
+    logger.info("Found %d flow instance(s) (sorted by startTime)", len(instances))
 
     # Step 2: For each instance, download execution data
     results = []
