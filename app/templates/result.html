@@ -306,44 +306,95 @@
 
   <!-- TAB: Variable Changes -->
   <div id="tab-{{ loop.index }}-vars" class="tab-panel hidden">
-    {% if inst.variable_timeline %}
+    {% if inst.variable_history %}
     <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-3 flex-wrap">
       <input type="text"
              placeholder="Filter by variable name…"
              oninput="filterVars(this, '{{ loop.index }}')"
              class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white w-60
                     placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+      <span class="text-gray-600 text-xs">{{ inst.variable_history | length }} variables</span>
       <button onclick="exportVarsCSV('{{ loop.index }}', '{{ conversation.conversation_id }}')"
               class="ml-auto text-xs text-green-400 hover:text-green-300 border border-gray-700 rounded px-2 py-1">
         ↓ Export CSV
       </button>
     </div>
-    <div class="overflow-auto" style="max-height: 65vh;">
-      <table class="w-full text-xs sticky-thead" id="vars-table-{{ loop.index }}">
-        <thead>
-          <tr class="text-gray-500 uppercase text-left border-b border-gray-800">
-            <th class="px-4 py-2">Step</th>
-            <th class="px-4 py-2">Action</th>
-            <th class="px-4 py-2">Variable</th>
-            <th class="px-4 py-2">Old Value</th>
-            <th class="px-4 py-2">New Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for change in inst.variable_timeline %}
-          <tr class="var-changed border-b border-gray-900">
-            <td class="px-4 py-2 text-gray-500">{{ change.step_seq }}</td>
-            <td class="px-4 py-2 text-gray-400">{{ change.step_name }}</td>
-            <td class="px-4 py-2 text-blue-300 font-semibold">{{ change.name }}</td>
-            <td class="px-4 py-2 text-gray-500 line-through">
-              {% if change.old_val == 'NOT_SET' %}<em class="no-underline">NOT_SET</em>
-              {% else %}{{ change.old_val }}{% endif %}
-            </td>
-            <td class="px-4 py-2 text-green-300">{{ change.new_val }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    {% set prefix_colors = {
+        'Flow':        'text-blue-300   border-blue-900   bg-blue-950',
+        'Task':        'text-indigo-300 border-indigo-900 bg-indigo-950',
+        'Call':        'text-cyan-300   border-cyan-900   bg-cyan-950',
+        'Interaction': 'text-cyan-300   border-cyan-900   bg-cyan-950',
+        'Conversation':'text-teal-300   border-teal-900   bg-teal-950',
+    } %}
+    {% set prefix_var_color = {
+        'Flow':        'text-blue-300',
+        'Task':        'text-indigo-300',
+        'Call':        'text-cyan-300',
+        'Interaction': 'text-cyan-300',
+        'Conversation':'text-teal-300',
+    } %}
+
+    <div class="overflow-auto" style="max-height: 65vh;" id="vars-table-{{ loop.index }}">
+      {% for prefix, vars in inst.variable_groups.items() %}
+      {% set grp_id = 'vg-' ~ loop.index ~ '-' ~ prefix %}
+      {% set hdr_colors = prefix_colors.get(prefix, 'text-gray-300 border-gray-700 bg-gray-900') %}
+      {% set var_color  = prefix_var_color.get(prefix, 'text-gray-300') %}
+
+      <!-- Group header -->
+      <button class="w-full flex items-center gap-2 px-4 py-2 border-b {{ hdr_colors }}
+                     hover:brightness-110 transition-all text-xs font-semibold uppercase tracking-wider"
+              onclick="toggleVarGroup('{{ grp_id }}', this)">
+        <span class="toggle-icon">▼</span>
+        <span>{{ prefix }}</span>
+        <span class="font-normal opacity-60 normal-case tracking-normal ml-1">{{ vars | length }} variable{{ 's' if vars | length != 1 }}</span>
+      </button>
+
+      <!-- Group rows -->
+      <div id="{{ grp_id }}">
+        <table class="w-full text-xs">
+          <tbody>
+            {% for var_name, entries in vars.items() %}
+            <tr class="var-row border-b border-gray-900 hover:bg-gray-900"
+                data-varname="{{ var_name | lower }}">
+              <td class="px-4 py-2.5 align-top w-64">
+                <span class="{{ var_color }} font-semibold font-mono">{{ var_name }}</span>
+                <div class="text-gray-600 text-xs mt-0.5">
+                  {{ entries | length }} change{{ 's' if entries | length != 1 }}
+                </div>
+              </td>
+              <td class="px-4 py-2.5">
+                <div class="flex flex-wrap items-center gap-1">
+                  {% for entry in entries %}
+                  <div class="flex items-center gap-1">
+                    <div class="group relative">
+                      <span class="inline-block bg-gray-800 border border-gray-700 rounded px-2 py-0.5
+                                   font-mono max-w-xs truncate cursor-default
+                                   {% if entry.value in ['None', '', 'NOT_SET'] %}text-gray-600 italic{% else %}text-gray-200{% endif %}"
+                            title="{{ entry.value if entry.value else 'NOT_SET' }}">
+                        {% if not entry.value %}NOT_SET
+                        {% elif entry.value | length > 45 %}{{ entry.value[:45] }}…
+                        {% else %}{{ entry.value }}{% endif %}
+                      </span>
+                      <div class="absolute bottom-full left-0 mb-1 hidden group-hover:block z-20
+                                  bg-gray-950 border border-gray-700 rounded px-2 py-1.5 whitespace-nowrap shadow-xl text-xs">
+                        <div class="text-blue-400 font-semibold">Step #{{ entry.step_seq }}</div>
+                        <div class="text-gray-400">{{ entry.step_name }}</div>
+                        <div class="text-gray-300 font-mono mt-1 max-w-xs break-all whitespace-normal">{{ entry.value }}</div>
+                      </div>
+                    </div>
+                    {% if not loop.last %}
+                    <span class="text-gray-600 select-none">→</span>
+                    {% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
     </div>
     {% else %}
     <div class="px-5 py-8 text-gray-600 text-center">
@@ -561,12 +612,20 @@ function toggleNested(btn) {
   btn.classList.toggle('text-gray-600', expanded);
 }
 
+// ── Variable group collapse ───────────────────────────────────────
+function toggleVarGroup(grpId, btn) {
+  const grp = document.getElementById(grpId);
+  if (!grp) return;
+  const collapsed = grp.style.display === 'none';
+  grp.style.display = collapsed ? '' : 'none';
+  btn.querySelector('.toggle-icon').textContent = collapsed ? '▼' : '▶';
+}
+
 // ── Variable timeline filter ──────────────────────────────────────
 function filterVars(input, instIdx) {
   const filter = input.value.toLowerCase();
-  document.querySelectorAll(`#vars-table-${instIdx} tbody tr`).forEach(row => {
-    const varName = row.querySelectorAll('td')[2]?.textContent?.toLowerCase() || '';
-    row.style.display = varName.includes(filter) ? '' : 'none';
+  document.querySelectorAll(`#vars-table-${instIdx} .var-row`).forEach(row => {
+    row.style.display = (row.dataset.varname || '').includes(filter) ? '' : 'none';
   });
 }
 
@@ -628,16 +687,21 @@ function exportStepsCSV(instIdx, convId) {
 
 // ── Export Variable Changes CSV ───────────────────────────────────
 function exportVarsCSV(instIdx, convId) {
-  const rows = [['Step #', 'Action', 'Variable', 'Old Value', 'New Value']];
-  document.querySelectorAll(`#vars-table-${instIdx} tbody tr`).forEach(row => {
-    const cells = row.querySelectorAll('td');
-    rows.push([
-      cells[0]?.textContent?.trim() || '',
-      cells[1]?.textContent?.trim() || '',
-      cells[2]?.textContent?.trim() || '',
-      cells[3]?.textContent?.trim() || '',
-      cells[4]?.textContent?.trim() || '',
-    ]);
+  // Find the max number of value changes across all variables for header
+  const tableRows = document.querySelectorAll(`#vars-table-${instIdx} .var-row`);
+  let maxChanges = 0;
+  tableRows.forEach(row => {
+    const chips = row.querySelectorAll('td:nth-child(2) span.inline-block');
+    if (chips.length > maxChanges) maxChanges = chips.length;
+  });
+
+  const header = ['Variable', ...Array.from({length: maxChanges}, (_, i) => `Value ${i + 1}`)];
+  const rows = [header];
+  tableRows.forEach(row => {
+    const varName = row.dataset.varname || '';
+    const chips   = Array.from(row.querySelectorAll('td:nth-child(2) span.inline-block'))
+                         .map(s => s.title || s.textContent.trim());
+    rows.push([varName, ...chips]);
   });
   downloadCSV(`${convId}_vars_${instIdx}.csv`, rows);
 }

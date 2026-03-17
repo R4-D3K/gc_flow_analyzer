@@ -50,6 +50,8 @@ class ParsedFlowInstance:
     total_steps: int
     steps: list[FlowStep]
     variable_timeline: list[dict]   # [{step_seq, name, old_val, new_val}]
+    variable_history: dict          # {varName: [{step_seq, step_name, action_type, value}]}
+    variable_groups: dict           # {prefix: {varName: [entries]}}
     mermaid_diagram: str
 
 
@@ -519,6 +521,43 @@ def _build_variable_timeline(steps: list[FlowStep]) -> list[dict]:
     return timeline
 
 
+def _group_variable_history(history: dict) -> dict:
+    """
+    Group variable history by prefix (the part before the first dot).
+    E.g. 'Flow.Ani' → group 'Flow', 'Task.IsActive' → group 'Task'.
+    Variables without a dot go into 'Other'.
+    Returns OrderedDict preserving insertion order within each group.
+    """
+    from collections import OrderedDict
+    groups: dict = OrderedDict()
+    for var_name, entries in history.items():
+        prefix = var_name.split(".")[0] if "." in var_name else "Other"
+        if prefix not in groups:
+            groups[prefix] = OrderedDict()
+        groups[prefix][var_name] = entries
+    return groups
+
+
+def _build_variable_history(timeline: list[dict]) -> dict:
+    """
+    Pivot the flat timeline into a per-variable structure.
+    Returns {varName: [{step_seq, step_name, action_type, value}]}
+    preserving the order variables first appeared.
+    """
+    history: dict = {}
+    for change in timeline:
+        name = change["name"]
+        if name not in history:
+            history[name] = []
+        history[name].append({
+            "step_seq":   change["step_seq"],
+            "step_name":  change["step_name"],
+            "action_type": change["action_type"],
+            "value":      change["new_val"],
+        })
+    return history
+
+
 # ---------------------------------------------------------------------------
 # Main parse function
 # ---------------------------------------------------------------------------
@@ -567,6 +606,8 @@ def parse_execution_data(raw_data: dict) -> ParsedConversation:
             steps.append(step)
 
         variable_timeline = _build_variable_timeline(steps)
+        variable_history  = _build_variable_history(variable_timeline)
+        variable_groups   = _group_variable_history(variable_history)
         mermaid_src = generate_mermaid(steps)
 
         parsed_instances.append(ParsedFlowInstance(
@@ -581,6 +622,8 @@ def parse_execution_data(raw_data: dict) -> ParsedConversation:
             total_steps=len(steps),
             steps=steps,
             variable_timeline=variable_timeline,
+            variable_history=variable_history,
+            variable_groups=variable_groups,
             mermaid_diagram=mermaid_src,
         ))
 
