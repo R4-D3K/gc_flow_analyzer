@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
 from app.gc_client import get_flow_execution_data, get_raw_debug_data, GCClientError
-from app.flow_parser import parse_execution_data
+from app.flow_parser import parse_execution_data, _flatten_execution_items
 
 logging.basicConfig(
     level=logging.INFO,
@@ -129,6 +129,29 @@ async def analyze_api(conversation_id: str):
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         logger.exception("Unexpected error in API for %s", conversation_id)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/api/rawsteps/{conversation_id}", response_class=JSONResponse)
+async def raw_steps(conversation_id: str):
+    """Returns raw (unparsed) execution items — for diagnosing key names in execution data."""
+    try:
+        raw_data = get_flow_execution_data(conversation_id.strip())
+        result = []
+        for flow_inst in raw_data.get("flowInstances", []):
+            exec_data = flow_inst.get("executionData", {})
+            items = _flatten_execution_items(exec_data)
+            result.append({
+                "flowName": flow_inst.get("instanceMeta", {}).get("flowName"),
+                "itemCount": len(items),
+                "firstItem": items[0] if items else None,
+                "allItems": items,
+            })
+        return result
+    except GCClientError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        logger.exception("rawsteps error for %s", conversation_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 

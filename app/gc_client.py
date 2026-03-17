@@ -210,7 +210,39 @@ def _download_execution_data(download_uri: str) -> dict:
         response = httpx.get(download_uri, timeout=30.0, follow_redirects=True)
         response.raise_for_status()
         data = response.json()
-        logger.info("Execution data downloaded, top-level keys: %s", list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+        if isinstance(data, dict):
+            logger.info("Execution data downloaded, top-level keys: %s", list(data.keys()))
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    logger.info("  [%s] → dict keys: %s", k, list(v.keys()))
+                elif isinstance(v, list):
+                    logger.info("  [%s] → list len=%d, first item keys: %s", k, len(v),
+                                list(v[0].keys()) if v and isinstance(v[0], dict) else (v[0] if v else "empty"))
+                else:
+                    logger.info("  [%s] → %s: %s", k, type(v).__name__, str(v)[:80])
+            # Log one level deeper for 'flow.execution'
+            flow_node = data.get("flow", {})
+            execution_node = flow_node.get("execution") if isinstance(flow_node, dict) else None
+            if isinstance(execution_node, dict):
+                logger.info("  flow.execution → dict, keys: %s", list(execution_node.keys()))
+                for ek, ev in execution_node.items():
+                    if isinstance(ev, list):
+                        logger.info("    flow.execution[%s] → list len=%d, first item keys: %s",
+                                    ek, len(ev),
+                                    list(ev[0].keys()) if ev and isinstance(ev[0], dict) else (ev[0] if ev else "empty"))
+                    elif isinstance(ev, dict):
+                        logger.info("    flow.execution[%s] → dict keys: %s", ek, list(ev.keys()))
+                    else:
+                        logger.info("    flow.execution[%s] → %s: %s", ek, type(ev).__name__, str(ev)[:60])
+            elif isinstance(execution_node, list):
+                logger.info("  flow.execution → list len=%d, first item keys: %s",
+                            len(execution_node),
+                            list(execution_node[0].keys()) if execution_node and isinstance(execution_node[0], dict) else "")
+            else:
+                logger.info("  flow.execution → %s", type(execution_node).__name__)
+        elif isinstance(data, list):
+            logger.info("Execution data is a list, len=%d, first item keys: %s", len(data),
+                        list(data[0].keys()) if data and isinstance(data[0], dict) else "")
         return data
     except Exception as e:
         raise GCClientError(f"Failed to download execution data: {e}") from e

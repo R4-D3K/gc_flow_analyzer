@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -99,57 +102,187 @@ def _extract_conv_variables(conv_details: dict) -> dict:
 
 def _flatten_execution_items(execution_data: dict) -> list[dict]:
     """
-    Extract execution items list from the job result dict.
-    GC returns them nested under executionData.execution.executionItems
-    or directly under execution.executionItems depending on expand level.
+    Extract execution items list from the downloaded execution data JSON.
+    GC renderedData JSON structure (SDK v233):
+      { "flow": { "execution": { "executionItems": [...] } } }
+    Also handles older/alternative structures as fallback.
     """
-    # Try multiple known paths
+    # Primary path: renderedData format
+    flow_node = execution_data.get("flow")
+    if isinstance(flow_node, dict):
+        exec_node = flow_node.get("execution")
+        # execution might be a list of items directly
+        if isinstance(exec_node, list):
+            return exec_node
+        # or a dict containing items under a key
+        if isinstance(exec_node, dict):
+            for key in ("executionItems", "execution_items", "items", "actions", "steps"):
+                items = exec_node.get(key)
+                if items and isinstance(items, list):
+                    return items
+
+    # Fallback: older patterns
     candidates = [
-        execution_data.get("execution_data", {}) or {},
-        execution_data.get("executionData", {}) or {},
+        execution_data.get("execution_data") or {},
+        execution_data.get("executionData") or {},
         execution_data,
     ]
     for candidate in candidates:
-        items = (
-            candidate.get("execution", {}).get("executionItems")
-            or candidate.get("executionItems")
-            or candidate.get("execution_items")
-        )
-        if items:
-            return items
+        if not isinstance(candidate, dict):
+            continue
+        exec_node = candidate.get("execution") or {}
+        for key in ("executionItems", "execution_items", "items", "actions", "steps"):
+            items = exec_node.get(key) if isinstance(exec_node, dict) else None
+            if items and isinstance(items, list):
+                return items
+        for key in ("executionItems", "execution_items", "items"):
+            items = candidate.get(key)
+            if items and isinstance(items, list):
+                return items
+
     return []
 
 
+def _vars_list_to_dict(lst: list) -> dict:
+    """Convert [{variableName/name/outputName, value}] to {name: value}."""
+    result = {}
+    for item in lst:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("variableName") or item.get("outputName")
+                or item.get("name", ""))
+        if name:
+            result[name] = item.get("value")
+    return result
+
+
 def _normalize_step(seq: int, raw: dict, flow_name: str) -> FlowStep:
-    """Convert a raw execution item dict into a FlowStep."""
-
-    def get(key, alt=None):
-        # Support both camelCase and snake_case keys
-        return raw.get(key) or raw.get(_to_snake(key)) or alt
-
-    action_id = _safe_str(get("actionId", get("id", "")))
-    action_name = _safe_str(get("actionName", get("name", f"Step {seq}")))
-    action_type = _safe_str(get("actionType", get("type", "")))
-    start_time = _safe_str(get("startDateTime", get("startTime", "")))
-    end_time = _safe_str(get("endDateTime", get("endTime", "")))
-
-    inputs = get("inputs", {}) or {}
-    outputs = get("outputs", {}) or {}
-    error_info = get("error") or get("errorInfo")
-    error_msg = None
-    if error_info:
-        error_msg = (
-            error_info.get("message")
-            or error_info.get("errorMessage")
-            or str(error_info)
+    """
+    Convert a GC renderedData execution item into a FlowStep.
+    Each item has exactly one key = event type, value = event data dict.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return FlowStep(
+            sequence=seq, action_id="", action_name=f"Step {seq}",
+            action_type="unknown", flow_name=flow_name, start_time="",
+            end_time="", duration_ms=None, inputs={}, outputs={},
+            error=None, variables_after={},
         )
 
-    # Variables snapshot: merge inputs + outputs as post-step state
-    variables_after = {}
-    if isinstance(inputs, dict):
-        variables_after.update({f"in.{k}": v for k, v in inputs.items()})
-    if isinstance(outputs, dict):
-        variables_after.update({f"out.{k}": v for k, v in outputs.items()})
+    event_type = list(raw.keys())[0]
+    ed = raw[event_type] if isinstance(raw[event_type], dict) else {}
+
+    action_id   = _safe_str(ed.get("actionId", ""))
+    action_name = _safe_str(
+        ed.get("actionName") or ed.get("taskName") or event_type
+    )
+    action_type = event_type
+    start_time  = _safe_str(ed.get("dateTime", ""))
+
+    # End time: for events with nested sub-execution use last nested dateTime
+    end_time = ""
+    nested = ed.get("execution")
+    if isinstance(nested, list) and nested:
+        for ne in reversed(nested):
+            if isinstance(ne, dict) and ne:
+                ne_data = next(iter(ne.values()), {})
+                if isinstance(ne_data, dict) and ne_data.get("dateTime"):
+                    end_time = ne_data["dateTime"]
+                    break
+
+    inputs:  dict = {}
+    outputs: dict = {}
+
+    # --- startedFlow / startedTask: initial variable snapshot ---
+    if event_type in ("startedFlow", "startedTask"):
+        vars_list = ed.get("variables") or []
+        if isinstance(vars_list, list):
+            inputs = _vars_list_to_dict(vars_list)
+
+    # --- actionUpdateData: variable assignments via statements ---
+    elif event_type == "actionUpdateData":
+        outputs = _vars_list_to_dict(ed.get("statements") or [])
+
+    # --- actionGetParticipantData: attributes → outputs + outputVariables for flow vars ---
+    elif event_type == "actionGetParticipantData":
+        # Display: participant attribute values (outputName → value)
+        attr_list = (ed.get("outputData") or {}).get("attributes") or []
+        outputs = _vars_list_to_dict(attr_list)
+        # Flow variable assignments (richer — override attr names if present)
+        ov = _vars_list_to_dict(ed.get("outputVariables") or [])
+        outputs.update(ov)
+
+    # --- actionCallTask / actionCallModule: task I/O ---
+    elif event_type in ("actionCallTask", "actionCallModule"):
+        # inputs: non-empty task input parameters
+        task_inputs = (ed.get("inputData") or {}).get("taskInputs") or []
+        inputs = _vars_list_to_dict(task_inputs) if task_inputs else {}
+        # outputs: outputVariables (preferred) or taskOutputs
+        ov = _vars_list_to_dict(ed.get("outputVariables") or [])
+        if ov:
+            outputs = ov
+        else:
+            task_outputs = (ed.get("outputData") or {}).get("taskOutputs") or []
+            outputs = _vars_list_to_dict(task_outputs) if task_outputs else {}
+        # annotate target task name
+        target = ed.get("targetTask") or {}
+        if target.get("taskName"):
+            inputs["_targetTask"] = target["taskName"]
+
+    # --- actionSwitch / actionDecision: show cases + selected path ---
+    elif event_type in ("actionSwitch", "actionDecision", "actionMenu"):
+        cases = (ed.get("inputData") or {}).get("cases") or []
+        for case in cases:
+            if isinstance(case, dict):
+                inputs[case.get("inputName", "case")] = case.get("value")
+        if ed.get("outputPathName"):
+            outputs["_selectedPath"] = ed["outputPathName"]
+        elif ed.get("outputPathId"):
+            outputs["_selectedPathId"] = ed["outputPathId"]
+
+    # --- actionSetParticipantData: show what's being set (inputName → value) ---
+    elif event_type == "actionSetParticipantData":
+        attr_list = (ed.get("inputData") or {}).get("attributes") or []
+        for attr in attr_list:
+            if isinstance(attr, dict):
+                name = attr.get("inputName") or attr.get("name", "")
+                if name:
+                    inputs[name] = attr.get("value")
+
+    # --- endedFlow: exit reason ---
+    elif event_type == "endedFlow":
+        if ed.get("flowExitReason"):
+            outputs["flowExitReason"] = ed["flowExitReason"]
+        outputs.update(_vars_list_to_dict(ed.get("outputVariables") or []))
+
+    # --- endedTask ---
+    elif event_type == "endedTask":
+        outputs = _vars_list_to_dict(ed.get("outputVariables") or [])
+
+    # --- generic fallback for other action types ---
+    else:
+        input_data = ed.get("inputData")
+        if isinstance(input_data, dict):
+            inputs = input_data
+        output_data = ed.get("outputData")
+        if isinstance(output_data, dict):
+            outputs.update(output_data)
+        outputs.update(_vars_list_to_dict(ed.get("outputVariables") or []))
+        outputs.update(_vars_list_to_dict(ed.get("statements") or []))
+        if ed.get("outputPathName"):
+            outputs["_selectedPath"] = ed["outputPathName"]
+
+    # Error
+    error_msg = None
+    error_info = ed.get("error") or ed.get("errorInfo")
+    if error_info:
+        error_msg = (
+            error_info.get("message") or error_info.get("errorMessage")
+            or str(error_info)
+        ) if isinstance(error_info, dict) else str(error_info)
+
+    variables_after = dict(inputs)
+    variables_after.update(outputs)
 
     return FlowStep(
         sequence=seq,
@@ -160,8 +293,8 @@ def _normalize_step(seq: int, raw: dict, flow_name: str) -> FlowStep:
         start_time=start_time,
         end_time=end_time,
         duration_ms=_duration_ms(start_time, end_time),
-        inputs=inputs if isinstance(inputs, dict) else {},
-        outputs=outputs if isinstance(outputs, dict) else {},
+        inputs=inputs,
+        outputs=outputs,
         error=error_msg,
         variables_after=variables_after,
     )
@@ -178,22 +311,30 @@ def _to_snake(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 _ACTION_TYPE_STYLES = {
-    # Decision/branch nodes
-    "decision": "diamond",
-    "menu": "diamond",
-    "switch": "diamond",
-    # Task/subflow nodes
-    "calldata": "round",
-    "task": "round",
-    "calltask": "round",
-    # Transfer/end nodes
-    "transfer": "trapezoid",
-    "disconnect": "trapezoid",
-    "end": "trapezoid",
-    # Data action
-    "dataaction": "stadium",
-    # Default
-    "default": "rect",
+    # Decision/branch — renderedData event names
+    "actionswitch": "diamond",
+    "actiondecision": "diamond",
+    "actionmenu": "diamond",
+    # Subflow/task call
+    "actioncalltask": "round",
+    "actioncallmodule": "round",
+    "actioncalllexbot": "round",
+    "actioncalldialogflowbot": "round",
+    # Transfer / end
+    "actiontransfer": "trapezoid",
+    "actiontransfertousers": "trapezoid",
+    "actiontransfertoqueue": "trapezoid",
+    "actiontransfertovoicemail": "trapezoid",
+    "actiondisconnect": "trapezoid",
+    "endedflow": "trapezoid",
+    # Data actions
+    "actiondataaction": "stadium",
+    "actiongetdata": "stadium",
+    "actioninvokestate": "stadium",
+    # Flow/task lifecycle
+    "startedflow": "round",
+    "startedtask": "round",
+    "endedtask": "round",
 }
 
 _MERMAID_SHAPES = {
@@ -212,7 +353,7 @@ def _sanitize_label(text: str) -> str:
 
 def _mermaid_node(step: FlowStep) -> str:
     node_id = f"S{step.sequence}"
-    shape_key = _ACTION_TYPE_STYLES.get(step.action_type.lower(), "default")
+    shape_key = _ACTION_TYPE_STYLES.get(step.action_type.lower(), "rect")
     open_b, close_b = _MERMAID_SHAPES[shape_key]
     label = _sanitize_label(f"{step.sequence}. {step.action_name}")
 
@@ -256,23 +397,39 @@ def generate_mermaid(steps: list[FlowStep]) -> str:
 def _build_variable_timeline(steps: list[FlowStep]) -> list[dict]:
     """
     Track variable changes across steps.
-    Returns list of {step_seq, step_name, name, old_val, new_val}
+    Scans both inputs (for startedFlow/startedTask initial values) and outputs.
+    Skips internal keys (prefixed _) and empty names.
+    Returns list of {step_seq, step_name, action_type, name, old_val, new_val}
     """
     timeline = []
     current_vars: dict = {}
 
     for step in steps:
-        # Only track output variables as they represent state changes
-        outputs = step.outputs
-        if not isinstance(outputs, dict):
+        # For lifecycle events track inputs (initial variable snapshot)
+        if step.action_type in ("startedFlow", "startedTask"):
+            candidates = step.inputs
+        else:
+            candidates = step.outputs
+
+        if not isinstance(candidates, dict):
             continue
-        for var_name, new_val in outputs.items():
+
+        for var_name, new_val in candidates.items():
+            # Skip internal/structural keys
+            if not var_name or var_name.startswith("_"):
+                continue
+            # Skip complex/empty values that aren't meaningful variable states
+            if isinstance(new_val, list) and not new_val:
+                continue
+            if isinstance(new_val, dict) and not new_val:
+                continue
             old_val = current_vars.get(var_name, "NOT_SET")
             new_val_str = _safe_str(new_val)
             if old_val != new_val_str:
                 timeline.append({
                     "step_seq": step.sequence,
                     "step_name": step.action_name,
+                    "action_type": step.action_type,
                     "name": var_name,
                     "old_val": old_val,
                     "new_val": new_val_str,
@@ -319,6 +476,10 @@ def parse_execution_data(raw_data: dict) -> ParsedConversation:
         instance_id = meta.get("flowInstanceId", "")
 
         raw_items = _flatten_execution_items(exec_data)
+        logger.info("parse: %d raw execution items for flow '%s'", len(raw_items), flow_name)
+        if raw_items:
+            logger.info("  first item keys: %s", list(raw_items[0].keys()) if isinstance(raw_items[0], dict) else type(raw_items[0]).__name__)
+            logger.info("  first item sample: %s", str(raw_items[0])[:300])
 
         steps = []
         for seq, raw_item in enumerate(raw_items, start=1):
