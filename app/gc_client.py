@@ -116,22 +116,32 @@ def _extract_flow_instance_ids(conversation_details: dict) -> list[dict]:
 
 def _lookup_instances_by_conversation(api_client: gc.ApiClient, conversation_id: str) -> list[dict]:
     """
-    Fallback: query Flows Instances API directly by conversationId.
-    Used when analytics conversation details don't include flow_instance_id
-    (e.g. when execution data logging was enabled but analytics haven't propagated yet,
-    or when the SDK omits the field).
+    Fallback: query POST /api/v2/flows/instances/query by conversationId.
+    Used when analytics conversation details don't include flow_instance_id.
+    Returns FlowExecutionDataQueryResult entities with id = flowInstanceId.
     """
     flow_api = gc.ArchitectApi(api_client)
     try:
-        result = flow_api.get_flows_instances(conversation_id=conversation_id, page_size=25)
+        item = gc.CriteriaItem()
+        item.key = "conversationId"
+        item.operator = "EQUALS"
+        item.value = conversation_id
+
+        group = gc.CriteriaGroup()
+        group.criteria = item
+
+        query = gc.CriteriaQuery()
+        query.query = [group]
+
+        result = flow_api.post_flows_instances_query(query, page_size=25)
         result_dict = result.to_dict()
-        logger.info("get_flows_instances fallback: top-level keys=%s", list(result_dict.keys()))
         entities = result_dict.get("entities") or []
-        logger.info("get_flows_instances fallback: %d entity(ies)", len(entities))
+        logger.info("post_flows_instances_query fallback: %d entity(ies)", len(entities))
+
         instances = []
         for ent in entities:
             logger.info("  entity keys=%s", list(ent.keys()))
-            instance_id = ent.get("id") or ent.get("flow_instance_id")
+            instance_id = ent.get("id")
             if instance_id and instance_id not in [i["flowInstanceId"] for i in instances]:
                 instances.append({
                     "flowInstanceId": instance_id,
@@ -139,14 +149,23 @@ def _lookup_instances_by_conversation(api_client: gc.ApiClient, conversation_id:
                     "flowName": ent.get("flow_name", ""),
                     "flowType": ent.get("flow_type", ""),
                     "flowVersion": ent.get("flow_version", ""),
-                    "startTime": ent.get("date_launched") or ent.get("start_date_time", ""),
-                    "endTime": ent.get("date_completed") or ent.get("end_date_time", ""),
-                    "exitReason": "",
+                    "startTime": _safe_dt(ent.get("start_date_time")),
+                    "endTime": _safe_dt(ent.get("end_date_time")),
+                    "exitReason": ent.get("flow_error_reason") or ent.get("flow_warning_reason", ""),
                 })
         return instances
     except ApiException as e:
-        logger.warning("get_flows_instances fallback failed: %s %s", e.status, e.reason)
+        logger.warning("post_flows_instances_query fallback failed: %s %s", e.status, e.reason)
         return []
+
+
+def _safe_dt(val) -> str:
+    """Convert datetime object or string to ISO string, or return ''."""
+    if val is None:
+        return ""
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val)
 
 
 def _start_execution_data_job(api_client: gc.ApiClient, instance_id: str) -> str:
