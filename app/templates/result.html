@@ -114,12 +114,18 @@
         </thead>
         <tbody>
           {% for step in inst.steps %}
-          <tr class="step-row border-b border-gray-900 {% if step.error %}step-error{% else %}step-normal{% endif %}"
+          <tr class="step-row border-b border-gray-900 {% if step.error %}step-error{% elif step.depth > 0 %}bg-gray-950{% else %}step-normal{% endif %}"
               data-name="{{ step.action_name | lower }}"
               data-type="{{ step.action_type | lower }}">
-            <td class="px-4 py-2 text-gray-500">{{ step.sequence }}</td>
-            <td class="px-4 py-2">
+            <td class="px-4 py-2 text-gray-500">
+              {% if step.depth > 0 %}<span class="text-gray-700">{{ "┗" * step.depth }}</span>{% endif %}{{ step.sequence }}
+            </td>
+            <td class="py-2" style="padding-left: {{ step.depth * 20 + 16 }}px">
+              {% if step.depth > 0 %}
               <span class="text-gray-200">{{ step.action_name }}</span>
+              {% else %}
+              <span class="text-gray-200 font-medium">{{ step.action_name }}</span>
+              {% endif %}
               {% if step.error %}
               <div class="text-red-400 text-xs mt-0.5">&#9888; {{ step.error }}</div>
               {% endif %}
@@ -127,9 +133,11 @@
             <td class="px-4 py-2">
               {% if step.action_type %}
               <span class="badge-type
-                {% if step.action_type | lower in ['decision', 'menu', 'switch'] %}bg-purple-900 text-purple-300
-                {% elif step.action_type | lower in ['transfer', 'disconnect'] %}bg-yellow-900 text-yellow-300
-                {% elif step.action_type | lower == 'dataaction' %}bg-cyan-900 text-cyan-300
+                {% if step.action_type | lower in ['actionswitch', 'actiondecision', 'actionmenu'] %}bg-purple-900 text-purple-300
+                {% elif 'transfer' in step.action_type | lower or 'disconnect' in step.action_type | lower %}bg-yellow-900 text-yellow-300
+                {% elif step.action_type | lower in ['actioncalldata', 'actiondatatableloookup', 'actiongetdata'] %}bg-cyan-900 text-cyan-300
+                {% elif step.action_type | lower == 'actioncalltask' %}bg-indigo-900 text-indigo-300
+                {% elif step.action_type | lower in ['startedflow', 'startedtask', 'endedtask', 'endedflow'] %}bg-gray-700 text-gray-400
                 {% elif step.error %}bg-red-900 text-red-300
                 {% else %}bg-gray-800 text-gray-400{% endif %}">
                 {{ step.action_type }}

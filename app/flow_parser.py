@@ -33,6 +33,8 @@ class FlowStep:
     outputs: dict
     error: Optional[str]
     variables_after: dict   # snapshot of relevant variables after this step
+    depth: int = 0          # nesting depth (0 = top-level, 1 = inside task, etc.)
+    parent_task: str = ""   # name of the containing task (if depth > 0)
 
 
 @dataclass
@@ -100,21 +102,13 @@ def _extract_conv_variables(conv_details: dict) -> dict:
     return result
 
 
-def _flatten_execution_items(execution_data: dict) -> list[dict]:
-    """
-    Extract execution items list from the downloaded execution data JSON.
-    GC renderedData JSON structure (SDK v233):
-      { "flow": { "execution": { "executionItems": [...] } } }
-    Also handles older/alternative structures as fallback.
-    """
-    # Primary path: renderedData format
+def _get_raw_execution_items(execution_data: dict) -> list:
+    """Extract the top-level execution items list from the downloaded JSON."""
     flow_node = execution_data.get("flow")
     if isinstance(flow_node, dict):
         exec_node = flow_node.get("execution")
-        # execution might be a list of items directly
         if isinstance(exec_node, list):
             return exec_node
-        # or a dict containing items under a key
         if isinstance(exec_node, dict):
             for key in ("executionItems", "execution_items", "items", "actions", "steps"):
                 items = exec_node.get(key)
@@ -122,12 +116,11 @@ def _flatten_execution_items(execution_data: dict) -> list[dict]:
                     return items
 
     # Fallback: older patterns
-    candidates = [
+    for candidate in [
         execution_data.get("execution_data") or {},
         execution_data.get("executionData") or {},
         execution_data,
-    ]
-    for candidate in candidates:
+    ]:
         if not isinstance(candidate, dict):
             continue
         exec_node = candidate.get("execution") or {}
@@ -139,8 +132,50 @@ def _flatten_execution_items(execution_data: dict) -> list[dict]:
             items = candidate.get(key)
             if items and isinstance(items, list):
                 return items
-
     return []
+
+
+def _expand_items_recursive(items: list, depth: int, parent_task: str) -> list[dict]:
+    """
+    Recursively expand execution items, inlining nested sub-task executions.
+    Items inside actionCallTask.execution are annotated with _depth and _parentTask
+    so _normalize_step can display them indented.
+    """
+    result = []
+    for item in items:
+        if not isinstance(item, dict) or not item:
+            continue
+
+        event_type = list(item.keys())[0]
+        ed = item[event_type]
+
+        # Annotate non-top-level items with parent context
+        if depth > 0 and isinstance(ed, dict):
+            annotated_ed = dict(ed)
+            annotated_ed["_depth"] = depth
+            annotated_ed["_parentTask"] = parent_task
+            result.append({event_type: annotated_ed})
+        else:
+            result.append(item)
+
+        # Inline nested execution for call-task events
+        if event_type in ("actionCallTask", "actionCallModule") and isinstance(ed, dict):
+            nested = ed.get("execution")
+            if isinstance(nested, list) and nested:
+                task_name = ed.get("actionName", "")
+                result.extend(_expand_items_recursive(nested, depth + 1, task_name))
+
+    return result
+
+
+def _flatten_execution_items(execution_data: dict) -> list[dict]:
+    """
+    Extract and expand execution items from downloaded GC renderedData JSON.
+    Recursively inlines nested sub-task executions (actionCallTask.execution)
+    so data actions and other nested steps appear in the flat step list.
+    """
+    raw = _get_raw_execution_items(execution_data)
+    return _expand_items_recursive(raw, depth=0, parent_task="")
 
 
 def _vars_list_to_dict(lst: list) -> dict:
@@ -178,6 +213,9 @@ def _normalize_step(seq: int, raw: dict, flow_name: str) -> FlowStep:
     )
     action_type = event_type
     start_time  = _safe_str(ed.get("dateTime", ""))
+    # Nesting metadata injected by _expand_items_recursive
+    depth       = int(ed.get("_depth", 0))
+    parent_task = _safe_str(ed.get("_parentTask", ""))
 
     # End time: for events with nested sub-execution use last nested dateTime
     end_time = ""
@@ -259,6 +297,43 @@ def _normalize_step(seq: int, raw: dict, flow_name: str) -> FlowStep:
     elif event_type == "endedTask":
         outputs = _vars_list_to_dict(ed.get("outputVariables") or [])
 
+    # --- actionCallData: data action call with request/response ---
+    elif event_type == "actionCallData":
+        # inputData: request parameters sent to the data action
+        input_data = ed.get("inputData")
+        if isinstance(input_data, dict):
+            for k, v in input_data.items():
+                if not k.startswith("_"):
+                    inputs[k] = v if not isinstance(v, (dict, list)) else str(v)
+        # outputVariables: flow variables assigned from the response (most useful)
+        ov = _vars_list_to_dict(ed.get("outputVariables") or [])
+        if ov:
+            outputs = ov
+        else:
+            # Fall back to raw outputData if no variable mappings
+            output_data = ed.get("outputData")
+            if isinstance(output_data, dict):
+                for k, v in output_data.items():
+                    if not k.startswith("_"):
+                        outputs[k] = v if not isinstance(v, (dict, list)) else str(v)
+
+    # --- actionDataTableLookup: lookup inputs + matched row outputs ---
+    elif event_type == "actionDataTableLookup":
+        input_data = ed.get("inputData")
+        if isinstance(input_data, dict):
+            for k, v in input_data.items():
+                if not k.startswith("_"):
+                    inputs[k] = v if not isinstance(v, (dict, list)) else str(v)
+        ov = _vars_list_to_dict(ed.get("outputVariables") or [])
+        if ov:
+            outputs = ov
+        else:
+            output_data = ed.get("outputData")
+            if isinstance(output_data, dict):
+                for k, v in output_data.items():
+                    if not k.startswith("_"):
+                        outputs[k] = v if not isinstance(v, (dict, list)) else str(v)
+
     # --- generic fallback for other action types ---
     else:
         input_data = ed.get("inputData")
@@ -297,6 +372,8 @@ def _normalize_step(seq: int, raw: dict, flow_name: str) -> FlowStep:
         outputs=outputs,
         error=error_msg,
         variables_after=variables_after,
+        depth=depth,
+        parent_task=parent_task,
     )
 
 
@@ -328,8 +405,10 @@ _ACTION_TYPE_STYLES = {
     "actiondisconnect": "trapezoid",
     "endedflow": "trapezoid",
     # Data actions
+    "actioncalldata": "stadium",
     "actiondataaction": "stadium",
     "actiongetdata": "stadium",
+    "actiondatatableloookup": "stadium",
     "actioninvokestate": "stadium",
     # Flow/task lifecycle
     "startedflow": "round",
@@ -363,15 +442,16 @@ def _mermaid_node(step: FlowStep) -> str:
 
 
 def generate_mermaid(steps: list[FlowStep]) -> str:
-    """Generate a Mermaid flowchart from the list of steps."""
-    if not steps:
+    """Generate a Mermaid flowchart from top-level steps only."""
+    top_level = [s for s in steps if s.depth == 0]
+    if not top_level:
         return "flowchart TD\n    A[No execution steps found]"
 
     lines = ["flowchart TD"]
 
-    # Limit to first 80 steps to keep diagram readable
-    display_steps = steps[:80]
-    truncated = len(steps) > 80
+    # Limit to first 80 top-level steps to keep diagram readable
+    display_steps = top_level[:80]
+    truncated = len(top_level) > 80
 
     # Node definitions
     for step in display_steps:
@@ -384,7 +464,7 @@ def generate_mermaid(steps: list[FlowStep]) -> str:
         lines.append(f"    S{curr.sequence} --> S{nxt.sequence}")
 
     if truncated:
-        lines.append(f'    S{display_steps[-1].sequence} --> TRUNC["... {len(steps) - 80} more steps"]')
+        lines.append(f'    S{display_steps[-1].sequence} --> TRUNC["... {len(top_level) - 80} more steps"]')
         lines.append('    style TRUNC fill:#aaa,color:#fff')
 
     return "\n".join(lines)

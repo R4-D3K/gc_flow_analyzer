@@ -10,7 +10,11 @@
       "Bash(python -c \":*)",
       "Bash(curl -s http://127.0.0.1:8000/api/rawsteps/a6d9c024-11bc-402f-9218-9afd852c6e60)",
       "Bash(curl -s http://127.0.0.1:8000/api/rawsteps/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)",
-      "Bash(curl -s http://127.0.0.1:8000/api/analyze/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)"
+      "Bash(curl -s http://127.0.0.1:8000/api/analyze/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)",
+      "Bash(venv/Scripts/python.exe -c \"from app.flow_parser import parse_execution_data, _flatten_execution_items, _expand_items_recursive; print\\(''OK''\\)\")"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }
