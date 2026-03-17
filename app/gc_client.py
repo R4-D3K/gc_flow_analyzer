@@ -123,8 +123,8 @@ def _lookup_instances_by_conversation(api_client: gc.ApiClient, conversation_id:
     flow_api = gc.ArchitectApi(api_client)
     try:
         item = gc.CriteriaItem()
-        item.key = "conversationId"
-        item.operator = "EQUALS"
+        item.key = "ConversationId"
+        item.operator = "eq"
         item.value = conversation_id
 
         group = gc.CriteriaGroup()
