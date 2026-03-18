@@ -7,7 +7,22 @@
 .fc-node { cursor: pointer; }
 .fc-node:hover .fc-bg { fill: #e8edf2 !important; }
 .fc-node[data-sel] .fc-bg { fill: #dbeafe !important; stroke: #3b82f6 !important; stroke-width: 2 !important; }
+/* Dark theme overrides */
+.fc-dark .fc-node:hover .fc-bg { fill: #1d2840 !important; }
+.fc-dark .fc-node[data-sel] .fc-bg { fill: #1a3050 !important; stroke: #3b82f6 !important; stroke-width: 2 !important; }
 .fc-detail-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #3d4b5a; font-size: 0.7rem; }
+.fc-toolbar-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 4px; border: 1px solid #30363d;
+  color: #8b949e; background: transparent; cursor: pointer; padding: 0; flex-shrink: 0;
+}
+.fc-toolbar-btn:hover { background: #21262d; color: #e6edf3; }
+.fc-theme-swatch {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; padding: 0; flex-shrink: 0; outline-offset: 2px;
+}
+.fc-theme-swatch:hover { outline: 2px solid #3b82f6; }
+.fc-theme-swatch.active { outline: 2px solid #3b82f6; }
 </style>
 
 {% set action_labels = {
@@ -416,20 +431,55 @@
   <!-- TAB: Flow Graph -->
   <div id="tab-{{ loop.index }}-diagram" class="tab-panel hidden">
     {% set top_steps = inst.steps | selectattr('depth', 'eq', 0) | list %}
-    <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-3">
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center gap-2 flex-wrap">
       <span class="text-gray-600 text-xs">{{ top_steps | length }} top-level steps · click node for detail</span>
-      <button onclick="copyMermaid('{{ loop.index }}')"
-              class="ml-auto text-xs text-gray-600 hover:text-gray-400 border border-gray-800 rounded px-2 py-1">
-        Copy Mermaid source
-      </button>
+      <div class="flex items-center gap-1 ml-auto">
+        <!-- Zoom -->
+        <button onclick="fcZoomIn({{ loop.index }})" title="Zoom in" class="fc-toolbar-btn">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.8" y1="9.8" x2="13.5" y2="13.5"/>
+            <line x1="4.5" y1="6.5" x2="8.5" y2="6.5"/><line x1="6.5" y1="4.5" x2="6.5" y2="8.5"/>
+          </svg>
+        </button>
+        <button onclick="fcZoomOut({{ loop.index }})" title="Zoom out" class="fc-toolbar-btn">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.8" y1="9.8" x2="13.5" y2="13.5"/>
+            <line x1="4.5" y1="6.5" x2="8.5" y2="6.5"/>
+          </svg>
+        </button>
+        <button onclick="fcZoomFit({{ loop.index }})" title="Fit to view" class="fc-toolbar-btn">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M1.5 5.5v-4h4M14.5 5.5v-4h-4M1.5 10.5v4h4M14.5 10.5v4h-4"/>
+          </svg>
+        </button>
+        <span style="width:1px;height:16px;background:#30363d;margin:0 4px;display:inline-block;flex-shrink:0"></span>
+        <!-- Background theme swatches -->
+        <button onclick="fcSetTheme({{ loop.index }},'light')"  title="Light background"
+                class="fc-theme-swatch" style="background:#f6f8fa"
+                id="fc-th-{{ loop.index }}-light"></button>
+        <button onclick="fcSetTheme({{ loop.index }},'dark')"   title="Dark background"
+                class="fc-theme-swatch" style="background:#0d1117;border-color:#444"
+                id="fc-th-{{ loop.index }}-dark"></button>
+        <button onclick="fcSetTheme({{ loop.index }},'beige')"  title="Beige background"
+                class="fc-theme-swatch" style="background:#fdf6e3"
+                id="fc-th-{{ loop.index }}-beige"></button>
+        <button onclick="fcSetTheme({{ loop.index }},'gray')"   title="Gray background"
+                class="fc-theme-swatch" style="background:#e5e7eb"
+                id="fc-th-{{ loop.index }}-gray"></button>
+        <span style="width:1px;height:16px;background:#30363d;margin:0 4px;display:inline-block;flex-shrink:0"></span>
+        <button onclick="copyMermaid('{{ loop.index }}')"
+                class="text-xs text-gray-600 hover:text-gray-400 border border-gray-800 rounded px-2 py-1">
+          Copy Mermaid
+        </button>
+      </div>
     </div>
 
     <!-- Split layout: flowchart left · detail panel right -->
     <div style="display:flex; height:68vh; min-height:380px;">
       <!-- SVG canvas -->
-      <div style="flex:1; overflow:auto; padding:16px; min-width:0; display:flex; justify-content:center; background:#f6f8fa;"
+      <div style="flex:1; overflow:hidden; min-width:0; position:relative; background:#f6f8fa;"
            id="fc-wrap-{{ loop.index }}">
-        <svg id="fc-svg-{{ loop.index }}" style="display:block;"></svg>
+        <svg id="fc-svg-{{ loop.index }}" style="display:block; width:100%; height:100%;"></svg>
       </div>
       <!-- Step detail -->
       <div style="width:310px; flex-shrink:0; border-left:1px solid #21262d; overflow-y:auto;"
@@ -469,8 +519,9 @@ function switchTab(instIdx, tabName, btn) {
 }
 
 // ── Flow graph ────────────────────────────────────────────────────
-const FC_NW = 280, FC_NX = 20, FC_CW = 320;  // node width, x offset, canvas width
-const _fcDone = {};
+const FC_NW = 280, FC_NX = 20, FC_CW = 320;
+const _fcDone = {}, _fcSteps = {}, _fcTheme = {}, _fcTransform = {}, _fcDrag = {}, _fcNaturalH = {};
+const FC_THEME_BG = { light:'#f6f8fa', dark:'#0d1117', beige:'#fdf6e3', gray:'#e5e7eb' };
 
 function _fcE(tag, a) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -480,66 +531,75 @@ function _fcE(tag, a) {
 function _fcT(text, a) { const el = _fcE('text', a); el.textContent = text; return el; }
 function _fcTrunc(s, n) { return s && s.length > n ? s.slice(0,n)+'…' : (s||''); }
 
-function _fcColors(type, err) {
-  if (err)                                                    return {f:'#fff0f0', s:'#fca5a5', a:'#dc2626'};
+function _fcColors(type, err, isDark) {
+  if (isDark) {
+    if (err)                                                       return {f:'#2a0a0a', s:'#7a2020', a:'#ef4444'};
+    if (['actionDecision','actionSwitch','actionMenu'].includes(type))
+                                                                   return {f:'#1a1030', s:'#5d3f8a', a:'#8b5cf6'};
+    if (['actionCallData','actionDataTableLookup'].includes(type)) return {f:'#0a1828', s:'#1e5a80', a:'#38bdf8'};
+    if (type === 'actionCallTask')                                 return {f:'#0f1838', s:'#2040a0', a:'#6366f1'};
+    if (/transfer|disconnect/i.test(type))                        return {f:'#1a1208', s:'#6c5a1e', a:'#fbbf24'};
+    if (['startedFlow','endedFlow','startedTask','endedTask'].includes(type))
+                                                                   return {f:'#161b22', s:'#2d333b', a:'#4b5563'};
+    return {f:'#1c2433', s:'#2d4060', a:'#3b82f6'};
+  }
+  if (err)                                                        return {f:'#fff0f0', s:'#fca5a5', a:'#dc2626'};
   if (['actionDecision','actionSwitch','actionMenu'].includes(type))
-                                                              return {f:'#faf5ff', s:'#a78bfa', a:'#7c3aed'};
-  if (['actionCallData','actionDataTableLookup'].includes(type))
-                                                              return {f:'#eff6ff', s:'#7dd3fc', a:'#0284c7'};
-  if (type === 'actionCallTask')                              return {f:'#eef2ff', s:'#a5b4fc', a:'#4f46e5'};
-  if (/transfer|disconnect/i.test(type))                     return {f:'#fffbeb', s:'#fcd34d', a:'#d97706'};
+                                                                  return {f:'#faf5ff', s:'#a78bfa', a:'#7c3aed'};
+  if (['actionCallData','actionDataTableLookup'].includes(type))  return {f:'#eff6ff', s:'#7dd3fc', a:'#0284c7'};
+  if (type === 'actionCallTask')                                  return {f:'#eef2ff', s:'#a5b4fc', a:'#4f46e5'};
+  if (/transfer|disconnect/i.test(type))                         return {f:'#fffbeb', s:'#fcd34d', a:'#d97706'};
   if (['startedFlow','endedFlow','startedTask','endedTask'].includes(type))
-                                                              return {f:'#f3f4f6', s:'#d1d5db', a:'#9ca3af'};
+                                                                  return {f:'#f3f4f6', s:'#d1d5db', a:'#9ca3af'};
   return {f:'#ffffff', s:'#d0d7de', a:'#2563eb'};
 }
 
-function _fcBuildNode(step, y) {
+function _fcBuildNode(step, y, isDark) {
   const g = _fcE('g', {class:'fc-node', 'data-seq': step.seq});
-  const isDec = ['actionDecision','actionSwitch','actionMenu'].includes(step.type);
+  const isDec  = ['actionDecision','actionSwitch','actionMenu'].includes(step.type);
   const isMeta = ['startedFlow','endedFlow','startedTask','endedTask'].includes(step.type);
   const nh = isDec ? 64 : isMeta ? 44 : 58;
-  const c = _fcColors(step.type, step.err);
+  const c  = _fcColors(step.type, step.err, isDark);
   const cx = FC_NX + FC_NW / 2;
+  const tName = isDark ? '#cdd9e5' : '#1f2937';
+  const tType = isDark ? '#768390' : '#6b7280';
+  const tSeq  = isDark ? '#4d5a6a' : '#9ca3af';
+  const tErr  = isDark ? '#f87171' : '#dc2626';
 
   if (isDec) {
-    const hx = FC_NW/2 - 2, hy = nh/2 - 1;
     const bg = _fcE('polygon', {
-      class:'fc-bg', 'data-orig-fill': c.f, 'data-orig-stroke': c.s,
+      class:'fc-bg', 'data-orig-fill':c.f, 'data-orig-stroke':c.s,
       points:`${cx},${y+1} ${FC_NX+FC_NW-1},${y+nh/2} ${cx},${y+nh-1} ${FC_NX+1},${y+nh/2}`,
       fill:c.f, stroke:c.s, 'stroke-width':'1.5'
     });
     g.appendChild(bg);
-    g.appendChild(_fcT(_fcTrunc(step.name,32), {x:cx, y:y+nh/2-4, 'text-anchor':'middle', fill:'#1f2937', 'font-size':'11', 'font-family':'monospace'}));
-    g.appendChild(_fcT(step.type,              {x:cx, y:y+nh/2+10, 'text-anchor':'middle', fill:'#9333ea', 'font-size':'9',  'font-family':'monospace'}));
-    g.appendChild(_fcT(`#${step.seq}`,         {x:FC_NX+FC_NW-10, y:y+14, 'text-anchor':'end', fill:'#9ca3af', 'font-size':'8', 'font-family':'monospace'}));
+    g.appendChild(_fcT(_fcTrunc(step.name,32), {x:cx, y:y+nh/2-4, 'text-anchor':'middle', fill:tName,  'font-size':'11', 'font-family':'monospace'}));
+    g.appendChild(_fcT(step.type,              {x:cx, y:y+nh/2+10,'text-anchor':'middle', fill:c.a,    'font-size':'9',  'font-family':'monospace'}));
+    g.appendChild(_fcT(`#${step.seq}`,         {x:FC_NX+FC_NW-10, y:y+14, 'text-anchor':'end', fill:tSeq, 'font-size':'8', 'font-family':'monospace'}));
   } else {
-    const rx = isMeta ? '16' : '4';
     const bg = _fcE('rect', {
-      class:'fc-bg', 'data-orig-fill': c.f, 'data-orig-stroke': c.s,
-      x:FC_NX, y, width:FC_NW, height:nh, rx, fill:c.f, stroke:c.s, 'stroke-width':'1.5'
+      class:'fc-bg', 'data-orig-fill':c.f, 'data-orig-stroke':c.s,
+      x:FC_NX, y, width:FC_NW, height:nh, rx:isMeta?'16':'4',
+      fill:c.f, stroke:c.s, 'stroke-width':'1.5'
     });
     g.appendChild(bg);
-    if (!isMeta) {
-      g.appendChild(_fcE('rect', {x:FC_NX, y:y+8, width:3, height:nh-16, rx:'1', fill:c.a}));
-    }
+    if (!isMeta) g.appendChild(_fcE('rect', {x:FC_NX, y:y+8, width:3, height:nh-16, rx:'1', fill:c.a}));
+    const cx2 = FC_NX + FC_NW/2;
     if (isMeta) {
-      // Capsule: name centered, seq below
-      const cx2 = FC_NX + FC_NW/2;
-      g.appendChild(_fcT(_fcTrunc(step.name, 38), {x:cx2, y:y+nh/2+1, 'text-anchor':'middle', fill:'#374151', 'font-size':'11', 'font-family':'monospace'}));
-      g.appendChild(_fcT(`#${step.seq}`, {x:cx2, y:y+nh/2+14, 'text-anchor':'middle', fill:'#9ca3af', 'font-size':'9', 'font-family':'monospace'}));
+      g.appendChild(_fcT(_fcTrunc(step.name,38), {x:cx2, y:y+nh/2+1,  'text-anchor':'middle', fill:isDark?'#8b949e':'#374151', 'font-size':'11', 'font-family':'monospace'}));
+      g.appendChild(_fcT(`#${step.seq}`,          {x:cx2, y:y+nh/2+14, 'text-anchor':'middle', fill:tSeq,  'font-size':'9',  'font-family':'monospace'}));
     } else {
-      g.appendChild(_fcT(`#${step.seq}`, {x:FC_NX+12, y:y+15, fill:'#9ca3af', 'font-size':'9', 'font-family':'monospace'}));
-      g.appendChild(_fcT(_fcTrunc(step.name, 28), {x:FC_NX+12, y:y+31, fill:step.err?'#dc2626':'#1f2937', 'font-size':'11', 'font-family':'monospace', 'font-weight':'500'}));
-      g.appendChild(_fcT(step.type, {x:FC_NX+12, y:y+45, fill:'#6b7280', 'font-size':'9', 'font-family':'monospace'}));
+      g.appendChild(_fcT(`#${step.seq}`,           {x:FC_NX+12, y:y+15, fill:tSeq,  'font-size':'9',  'font-family':'monospace'}));
+      g.appendChild(_fcT(_fcTrunc(step.name,28),   {x:FC_NX+12, y:y+31, fill:step.err?tErr:tName, 'font-size':'11', 'font-family':'monospace', 'font-weight':'500'}));
+      g.appendChild(_fcT(step.type,                {x:FC_NX+12, y:y+45, fill:tType, 'font-size':'9',  'font-family':'monospace'}));
       if (step.dur !== null && step.dur >= 1000) {
-        const dc = step.dur >= 5000 ? '#b91c1c' : step.dur >= 2000 ? '#c2410c' : '#b45309';
-        const dt = (step.dur/1000).toFixed(1)+'s'+(step.dur>=5000?' ⚠':'');
-        g.appendChild(_fcT(dt, {x:FC_NX+FC_NW-8, y:y+31, 'text-anchor':'end', fill:dc, 'font-size':'9', 'font-family':'monospace'}));
+        const dc = step.dur >= 5000 ? '#ef4444' : step.dur >= 2000 ? '#f97316' : '#f59e0b';
+        g.appendChild(_fcT((step.dur/1000).toFixed(1)+'s'+(step.dur>=5000?' ⚠':''),
+          {x:FC_NX+FC_NW-8, y:y+31, 'text-anchor':'end', fill:dc, 'font-size':'9', 'font-family':'monospace'}));
       }
     }
   }
-
-  g._nh = nh;  // store actual node height for layout
+  g._nh = nh;
   return g;
 }
 
@@ -563,8 +623,15 @@ function fcInit(instIdx) {
       par:  _fcJ(r.dataset.parent, ''),
     });
   });
+  _fcSteps[instIdx] = steps;
   _fcDone[instIdx] = true;
+  if (!_fcTheme[instIdx]) {
+    _fcTheme[instIdx] = 'light';
+    const btn = document.getElementById(`fc-th-${instIdx}-light`);
+    if (btn) btn.classList.add('active');
+  }
   _fcRender(instIdx, steps);
+  requestAnimationFrame(() => fcZoomFit(instIdx));
 }
 
 function _fcJ(s, fb) { try { return JSON.parse(s); } catch { return fb; } }
@@ -573,55 +640,132 @@ function _fcRender(instIdx, steps) {
   const svg = document.getElementById(`fc-svg-${instIdx}`);
   if (!svg || !steps.length) return;
   svg.innerHTML = '';
+  const isDark = (_fcTheme[instIdx] || 'light') === 'dark';
+  if (isDark) svg.classList.add('fc-dark'); else svg.classList.remove('fc-dark');
+  const arrowCol = isDark ? '#3d4b5a' : '#9ca3af';
 
-  // Arrow marker
   const defs = _fcE('defs');
   const mk = _fcE('marker', {id:`fcarr-${instIdx}`, markerWidth:'8', markerHeight:'8', refX:'8', refY:'4', orient:'auto'});
-  mk.appendChild(_fcE('path', {d:'M0,0.5 L0,7.5 L8,4 z', fill:'#9ca3af'}));
+  mk.appendChild(_fcE('path', {d:'M0,0.5 L0,7.5 L8,4 z', fill:arrowCol}));
   defs.appendChild(mk);
   svg.appendChild(defs);
 
-  const GAP = 18;   // vertical gap between nodes (arrow space)
-  const cx = FC_NX + FC_NW / 2;
-  let y = 10, totalH = 10;
+  const g = _fcE('g', {id:`fc-g-${instIdx}`});
+  const GAP = 18, cx = FC_NX + FC_NW/2;
+  let y = 10;
   const nodeEls = [];
 
   for (const step of steps) {
-    const node = _fcBuildNode(step, y);
-    const nh = node._nh;
-    totalH = y + nh + GAP;
-
-    if (nodeEls.length > 0) {
-      // Arrow from bottom of previous to top of this
-      const prevEl = nodeEls[nodeEls.length-1];
-      const prevBottom = prevEl._y + prevEl._nh;
-      svg.appendChild(_fcE('line', {
-        x1:cx, y1:prevBottom+1, x2:cx, y2:y-1,
-        stroke:'#9ca3af', 'stroke-width':'1.5', 'marker-end':`url(#fcarr-${instIdx})`
+    const node = _fcBuildNode(step, y, isDark);
+    if (nodeEls.length) {
+      const prev = nodeEls[nodeEls.length-1];
+      g.appendChild(_fcE('line', {
+        x1:cx, y1:prev._y+prev._nh+1, x2:cx, y2:y-1,
+        stroke:arrowCol, 'stroke-width':'1.5', 'marker-end':`url(#fcarr-${instIdx})`
       }));
     }
-
     node._y = y;
     node.addEventListener('click', e => { _fcSelect(instIdx, node, step); e.stopPropagation(); });
-    svg.appendChild(node);
+    g.appendChild(node);
     nodeEls.push(node);
-    y += nh + GAP;
+    y += node._nh + GAP;
   }
+  _fcNaturalH[instIdx] = y + 4;
 
-  totalH = y + 4;
-  svg.setAttribute('width', FC_CW);
-  svg.setAttribute('height', totalH);
-  svg.setAttribute('viewBox', `0 0 ${FC_CW} ${totalH}`);
+  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
+  g.setAttribute('transform', `translate(${t.tx},${t.ty}) scale(${t.scale})`);
+  svg.appendChild(g);
+
+  if (!svg._fcEvt) {
+    svg._fcEvt = true;
+    svg.style.cursor = 'grab';
+    svg.addEventListener('wheel', e => _fcOnWheel(instIdx, e), {passive:false});
+    svg.addEventListener('mousedown', e => _fcOnMouseDown(instIdx, e));
+  }
 }
 
+function _fcApplyTransform(instIdx) {
+  const g = document.getElementById(`fc-g-${instIdx}`);
+  if (!g) return;
+  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
+  g.setAttribute('transform', `translate(${t.tx},${t.ty}) scale(${t.scale})`);
+}
+
+function fcZoomIn(instIdx)  { _fcZoom(instIdx,  1.25); }
+function fcZoomOut(instIdx) { _fcZoom(instIdx, 1/1.25); }
+function _fcZoom(instIdx, factor) {
+  const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+  if (!wrap) return;
+  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
+  const ns = Math.min(Math.max(t.scale * factor, 0.1), 5);
+  const cx = wrap.clientWidth/2, cy = wrap.clientHeight/2;
+  _fcTransform[instIdx] = {scale:ns, tx:cx-(cx-t.tx)*(ns/t.scale), ty:cy-(cy-t.ty)*(ns/t.scale)};
+  _fcApplyTransform(instIdx);
+}
+function fcZoomFit(instIdx) {
+  const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+  if (!wrap) return;
+  const cw = FC_CW + FC_NX*2, ch = (_fcNaturalH[instIdx]||600) + 20;
+  const scale = Math.min(wrap.clientWidth/cw, wrap.clientHeight/ch, 1.5);
+  _fcTransform[instIdx] = {
+    scale, tx:(wrap.clientWidth-cw*scale)/2, ty:Math.max(8,(wrap.clientHeight-ch*scale)/4)
+  };
+  _fcApplyTransform(instIdx);
+}
+
+function fcSetTheme(instIdx, theme) {
+  _fcTheme[instIdx] = theme;
+  const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+  if (wrap) wrap.style.background = FC_THEME_BG[theme] || '#f6f8fa';
+  ['light','dark','beige','gray'].forEach(t => {
+    const btn = document.getElementById(`fc-th-${instIdx}-${t}`);
+    if (btn) btn.classList.toggle('active', t === theme);
+  });
+  if (_fcSteps[instIdx]) _fcRender(instIdx, _fcSteps[instIdx]);
+}
+
+function _fcOnWheel(instIdx, e) {
+  e.preventDefault();
+  const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+  if (!wrap) return;
+  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
+  const f = e.deltaY < 0 ? 1.1 : 1/1.1;
+  const ns = Math.min(Math.max(t.scale*f, 0.1), 5);
+  const r = wrap.getBoundingClientRect();
+  const mx = e.clientX-r.left, my = e.clientY-r.top;
+  _fcTransform[instIdx] = {scale:ns, tx:mx-(mx-t.tx)*(ns/t.scale), ty:my-(my-t.ty)*(ns/t.scale)};
+  _fcApplyTransform(instIdx);
+}
+function _fcOnMouseDown(instIdx, e) {
+  if (e.button !== 0 || e.target.closest('.fc-node')) return;
+  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
+  _fcDrag[instIdx] = {x0:e.clientX, y0:e.clientY, tx0:t.tx, ty0:t.ty};
+  const svg = document.getElementById(`fc-svg-${instIdx}`);
+  if (svg) svg.style.cursor = 'grabbing';
+  e.preventDefault();
+}
+document.addEventListener('mousemove', e => {
+  for (const [idx, d] of Object.entries(_fcDrag)) {
+    if (!d) continue;
+    const t = _fcTransform[idx] || {scale:1};
+    _fcTransform[idx] = {scale:t.scale, tx:d.tx0+(e.clientX-d.x0), ty:d.ty0+(e.clientY-d.y0)};
+    _fcApplyTransform(idx);
+  }
+});
+document.addEventListener('mouseup', () => {
+  for (const idx of Object.keys(_fcDrag)) {
+    delete _fcDrag[idx];
+    const svg = document.getElementById(`fc-svg-${idx}`);
+    if (svg) svg.style.cursor = 'grab';
+  }
+});
+
 function _fcSelect(instIdx, nodeEl, step) {
-  // Deselect all in this SVG
   document.querySelectorAll(`#fc-svg-${instIdx} .fc-node`).forEach(n => {
     n.removeAttribute('data-sel');
     const bg = n.querySelector('.fc-bg');
-    if (bg) { bg.setAttribute('fill', bg.dataset.origFill||'#161b22'); bg.setAttribute('stroke', bg.dataset.origStroke||'#253545'); }
+    if (bg) { bg.setAttribute('fill', bg.dataset.origFill||'#fff'); bg.setAttribute('stroke', bg.dataset.origStroke||'#ccc'); }
   });
-  // Select
   nodeEl.dataset.sel = '1';
   _fcDetail(instIdx, step);
 }
