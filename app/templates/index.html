@@ -21,7 +21,19 @@
 
   <!-- Input form -->
   <div class="card p-6">
-    <form method="POST" action="/analyze" id="analyzeForm">
+    <form method="POST" action="{{ root }}/analyze" id="analyzeForm">
+      {% if multi_org and org_names %}
+      <div class="mb-4">
+        <label class="block text-gray-400 text-xs mb-1 uppercase tracking-wider">Genesys Cloud Org</label>
+        <select name="org_name"
+                class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white
+                       focus:outline-none focus:border-blue-500">
+          {% for name in org_names %}
+          <option value="{{ name }}" {% if name == selected_org %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
       <label class="block text-gray-400 text-xs mb-1 uppercase tracking-wider">
         Conversation ID
       </label>

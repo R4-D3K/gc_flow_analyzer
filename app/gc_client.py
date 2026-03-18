@@ -3,6 +3,10 @@ Genesys Cloud API client wrapper.
 
 Handles authentication (Client Credentials) and all API calls needed
 to retrieve flow execution data for a given ConversationId.
+
+Supports multi-org mode: each org has its own cached ApiClient keyed by client_id.
+Falls back to single-org config (GC_CLIENT_ID / GC_CLIENT_SECRET / GC_ENVIRONMENT)
+when org=None is passed.
 """
 
 import time
@@ -13,7 +17,7 @@ import httpx
 import PureCloudPlatformClientV2 as gc
 from PureCloudPlatformClientV2.rest import ApiException
 
-from app.config import GC_CLIENT_ID, GC_CLIENT_SECRET, GC_ENVIRONMENT
+from app import config
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +26,9 @@ _POLL_INTERVAL = 2
 # Maximum number of poll attempts before giving up (~60 seconds total)
 _POLL_MAX_ATTEMPTS = 30
 
-# Token cache: reuse the same ApiClient until the token expires
-_cached_api_client: Optional[gc.ApiClient] = None
-_token_expires_at: float = 0.0
+# Token cache: dict keyed by client_id → (ApiClient, expires_at)
+_api_client_cache: dict[str, tuple[gc.ApiClient, float]] = {}
+
 # Refresh 60 s before actual expiry to avoid edge-case 401s
 _TOKEN_EXPIRY_SECONDS = 3600
 _TOKEN_REFRESH_BUFFER = 60
@@ -34,42 +38,70 @@ class GCClientError(Exception):
     """Raised when a Genesys Cloud API call fails."""
 
 
-def _get_api_client() -> gc.ApiClient:
+def _resolve_org_dict(org: dict | None) -> dict:
     """
-    Return an authenticated ApiClient, reusing a cached one if the token is
-    still valid.  GC Client Credentials tokens are valid for ~1 hour.
+    Return a normalised org dict. If org is None, build one from single-org config.
     """
-    global _cached_api_client, _token_expires_at
+    if org is not None:
+        return org
+    return {
+        "name":          "Default",
+        "environment":   config.GC_ENVIRONMENT,
+        "client_id":     config.GC_CLIENT_ID,
+        "client_secret": config.GC_CLIENT_SECRET,
+    }
 
+
+def _get_api_client(org: dict) -> gc.ApiClient:
+    """
+    Return an authenticated ApiClient for the given org, reusing a cached one
+    if the token is still valid.  GC Client Credentials tokens are valid for ~1 hour.
+    """
+    global _api_client_cache
+
+    client_id = org["client_id"]
     now = time.monotonic()
-    if _cached_api_client is not None and now < _token_expires_at:
-        logger.debug("Reusing cached GC token (expires in %.0fs)", _token_expires_at - now)
-        return _cached_api_client
 
-    logger.info("Obtaining new GC access token")
-    gc.configuration.host = f"https://api.{GC_ENVIRONMENT}"
+    cached = _api_client_cache.get(client_id)
+    if cached is not None:
+        api_client, expires_at = cached
+        if now < expires_at:
+            logger.debug(
+                "Reusing cached GC token for org '%s' (expires in %.0fs)",
+                org.get("name", client_id[:8]),
+                expires_at - now,
+            )
+            return api_client
+
+    logger.info("Obtaining new GC access token for org '%s'", org.get("name", client_id[:8]))
+    gc.configuration.host = f"https://api.{org['environment']}"
     api_client = gc.api_client.ApiClient()
 
     try:
         token_response = api_client.get_client_credentials_token(
-            GC_CLIENT_ID, GC_CLIENT_SECRET
+            org["client_id"], org["client_secret"]
         )
         api_client.set_default_header("Authorization", f"Bearer {token_response.access_token}")
-        _cached_api_client = api_client
-        _token_expires_at = now + _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER
-        logger.info("Genesys Cloud authentication successful, token cached for %ds",
-                    _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER)
+        _api_client_cache[client_id] = (
+            api_client,
+            now + _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER,
+        )
+        logger.info(
+            "Genesys Cloud authentication successful for org '%s', token cached for %ds",
+            org.get("name", client_id[:8]),
+            _TOKEN_EXPIRY_SECONDS - _TOKEN_REFRESH_BUFFER,
+        )
         return api_client
     except ApiException as e:
         raise GCClientError(f"Authentication failed: {e.status} {e.reason}") from e
 
 
-def get_conversation_details(conversation_id: str) -> dict:
+def get_conversation_details(conversation_id: str, org: dict) -> dict:
     """
     Fetch conversation details from Analytics API.
     Returns the raw dict from AnalyticsConversationWithoutAttributes.
     """
-    api_client = _get_api_client()
+    api_client = _get_api_client(org)
     analytics_api = gc.ConversationsApi(api_client)
 
     try:
@@ -312,14 +344,15 @@ def _poll_job(api_client: gc.ApiClient, job_id: str) -> dict:
     )
 
 
-def get_raw_debug_data(conversation_id: str) -> dict:
+def get_raw_debug_data(conversation_id: str, org: dict | None = None) -> dict:
     """
     Debug helper: returns raw GC API responses at each pipeline stage.
     Useful for inspecting actual key names returned by the SDK before
     adjusting flow_parser.py mappings.
     """
+    org = _resolve_org_dict(org)
     result = {"conversationId": conversation_id, "stages": {}}
-    api_client = _get_api_client()
+    api_client = _get_api_client(org)
 
     # Stage 1: conversation details
     try:
@@ -373,18 +406,22 @@ def get_raw_debug_data(conversation_id: str) -> dict:
     return result
 
 
-def get_flow_execution_data(conversation_id: str) -> dict:
+def get_flow_execution_data(conversation_id: str, org: dict | None = None) -> dict:
     """
     Main entry point. Given a ConversationId:
     1. Fetch conversation details → extract flowInstanceId(s)
     2. For each instance: start async job → poll → return execution data
     Returns a structured dict ready for flow_parser.
+
+    org: dict with keys name/environment/client_id/client_secret.
+         If None, falls back to single-org config values.
     """
-    api_client = _get_api_client()
+    org = _resolve_org_dict(org)
+    api_client = _get_api_client(org)
 
     # Step 1: Get conversation details and extract flow instances
-    logger.info("Fetching conversation details for %s", conversation_id)
-    conv_details = get_conversation_details(conversation_id)
+    logger.info("Fetching conversation details for %s (org: %s)", conversation_id, org["name"])
+    conv_details = get_conversation_details(conversation_id, org)
     instances = _extract_flow_instance_ids(conv_details)
 
     if not instances:

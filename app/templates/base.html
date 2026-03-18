@@ -70,10 +70,13 @@
       <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
       <div class="w-3 h-3 rounded-full bg-green-500"></div>
     </div>
-    <a href="/" class="text-gray-300 hover:text-white font-semibold ml-2 text-base">
+    <a href="{{ root }}/" class="text-gray-300 hover:text-white font-semibold ml-2 text-base">
       GC Flow Analyzer
     </a>
     <span class="text-gray-600 text-xs ml-auto">Genesys Cloud Architect Execution History</span>
+    {% if request.session.get('authenticated') %}
+    <a href="{{ root }}/logout" class="text-gray-600 hover:text-gray-400 text-xs ml-4">Sign out</a>
+    {% endif %}
   </header>
 
   <main class="max-w-7xl mx-auto px-4 py-8">
