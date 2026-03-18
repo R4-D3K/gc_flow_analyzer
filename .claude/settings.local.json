@@ -13,7 +13,13 @@
       "Bash(curl -s http://127.0.0.1:8000/api/analyze/4f2e5340-2844-4caf-8aa1-1bf0f62988e4)",
       "Bash(venv/Scripts/python.exe -c \"from app.flow_parser import parse_execution_data, _flatten_execution_items, _expand_items_recursive; print\\(''OK''\\)\")",
       "Bash(venv/Scripts/python.exe -c \"from app.main import app; print\\(''OK''\\)\")",
-      "Bash(venv/Scripts/python.exe -c \"from app.gc_client import get_flow_execution_data; print\\(''OK''\\)\")"
+      "Bash(venv/Scripts/python.exe -c \"from app.gc_client import get_flow_execution_data; print\\(''OK''\\)\")",
+      "Bash(git push:*)",
+      "Bash(venv/Scripts/python.exe -c \"from app.main import app; from app.flow_parser import _build_variable_history; print\\(''OK''\\)\")",
+      "Bash(venv/Scripts/python.exe -c \"from app.main import app; from app.flow_parser import _group_variable_history; print\\(''OK''\\)\")",
+      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(python -c \"from jinja2 import Environment, FileSystemLoader; env = Environment\\(loader=FileSystemLoader\\(''app/templates''\\)\\); t = env.get_template\\(''result.html''\\); print\\(''Template OK''\\)\")",
+      "Bash(python -c \"from jinja2 import Environment, FileSystemLoader; env = Environment\\(loader=FileSystemLoader\\(''app/templates''\\)\\); t = env.get_template\\(''result.html''\\); print\\(''OK''\\)\")"
     ],
     "additionalDirectories": [
       "\\tmp"
