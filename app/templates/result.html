@@ -5,8 +5,8 @@
 <style>
 /* ── SVG Flow Graph ───────────────────────────────────────────── */
 .fc-node { cursor: pointer; }
-.fc-node:hover .fc-bg { fill: #1d2840; }
-.fc-node[data-sel] .fc-bg { fill: #192640; stroke: #3b82f6 !important; stroke-width: 2 !important; }
+.fc-node:hover .fc-bg { fill: #e8edf2 !important; }
+.fc-node[data-sel] .fc-bg { fill: #dbeafe !important; stroke: #3b82f6 !important; stroke-width: 2 !important; }
 .fc-detail-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #3d4b5a; font-size: 0.7rem; }
 </style>
 
@@ -427,7 +427,7 @@
     <!-- Split layout: flowchart left · detail panel right -->
     <div style="display:flex; height:68vh; min-height:380px;">
       <!-- SVG canvas -->
-      <div style="flex:1; overflow:auto; padding:16px; min-width:0; display:flex; justify-content:center;"
+      <div style="flex:1; overflow:auto; padding:16px; min-width:0; display:flex; justify-content:center; background:#f6f8fa;"
            id="fc-wrap-{{ loop.index }}">
         <svg id="fc-svg-{{ loop.index }}" style="display:block;"></svg>
       </div>
@@ -481,16 +481,16 @@ function _fcT(text, a) { const el = _fcE('text', a); el.textContent = text; retu
 function _fcTrunc(s, n) { return s && s.length > n ? s.slice(0,n)+'…' : (s||''); }
 
 function _fcColors(type, err) {
-  if (err)                                                    return {f:'#1a0f0f', s:'#7a2020', a:'#7a2020'};
+  if (err)                                                    return {f:'#fff0f0', s:'#fca5a5', a:'#dc2626'};
   if (['actionDecision','actionSwitch','actionMenu'].includes(type))
-                                                              return {f:'#150f1e', s:'#4d3f6e', a:'#4d3f6e'};
+                                                              return {f:'#faf5ff', s:'#a78bfa', a:'#7c3aed'};
   if (['actionCallData','actionDataTableLookup'].includes(type))
-                                                              return {f:'#0c1820', s:'#1d4e63', a:'#1d4e63'};
-  if (type === 'actionCallTask')                              return {f:'#0f1824', s:'#1e3a5f', a:'#1e3a5f'};
-  if (/transfer|disconnect/i.test(type))                     return {f:'#161008', s:'#5c4a1e', a:'#5c4a1e'};
+                                                              return {f:'#eff6ff', s:'#7dd3fc', a:'#0284c7'};
+  if (type === 'actionCallTask')                              return {f:'#eef2ff', s:'#a5b4fc', a:'#4f46e5'};
+  if (/transfer|disconnect/i.test(type))                     return {f:'#fffbeb', s:'#fcd34d', a:'#d97706'};
   if (['startedFlow','endedFlow','startedTask','endedTask'].includes(type))
-                                                              return {f:'#0f1215', s:'#2d333b', a:'#2d333b'};
-  return {f:'#161b22', s:'#253545', a:'#2d4a6b'};
+                                                              return {f:'#f3f4f6', s:'#d1d5db', a:'#9ca3af'};
+  return {f:'#ffffff', s:'#d0d7de', a:'#2563eb'};
 }
 
 function _fcBuildNode(step, y) {
@@ -509,9 +509,9 @@ function _fcBuildNode(step, y) {
       fill:c.f, stroke:c.s, 'stroke-width':'1.5'
     });
     g.appendChild(bg);
-    g.appendChild(_fcT(_fcTrunc(step.name,32), {x:cx, y:y+nh/2-4, 'text-anchor':'middle', fill:'#cdd9e5', 'font-size':'11', 'font-family':'monospace'}));
-    g.appendChild(_fcT(step.type,              {x:cx, y:y+nh/2+10, 'text-anchor':'middle', fill:'#4a5568', 'font-size':'9',  'font-family':'monospace'}));
-    g.appendChild(_fcT(`#${step.seq}`,         {x:FC_NX+FC_NW-10, y:y+14, 'text-anchor':'end', fill:'#4a5568', 'font-size':'8', 'font-family':'monospace'}));
+    g.appendChild(_fcT(_fcTrunc(step.name,32), {x:cx, y:y+nh/2-4, 'text-anchor':'middle', fill:'#1f2937', 'font-size':'11', 'font-family':'monospace'}));
+    g.appendChild(_fcT(step.type,              {x:cx, y:y+nh/2+10, 'text-anchor':'middle', fill:'#9333ea', 'font-size':'9',  'font-family':'monospace'}));
+    g.appendChild(_fcT(`#${step.seq}`,         {x:FC_NX+FC_NW-10, y:y+14, 'text-anchor':'end', fill:'#9ca3af', 'font-size':'8', 'font-family':'monospace'}));
   } else {
     const rx = isMeta ? '16' : '4';
     const bg = _fcE('rect', {
@@ -525,12 +525,12 @@ function _fcBuildNode(step, y) {
     if (isMeta) {
       // Capsule: name centered, seq below
       const cx2 = FC_NX + FC_NW/2;
-      g.appendChild(_fcT(_fcTrunc(step.name, 38), {x:cx2, y:y+nh/2+1, 'text-anchor':'middle', fill:'#8b949e', 'font-size':'11', 'font-family':'monospace'}));
-      g.appendChild(_fcT(`#${step.seq}`, {x:cx2, y:y+nh/2+14, 'text-anchor':'middle', fill:'#3d4b5a', 'font-size':'9', 'font-family':'monospace'}));
+      g.appendChild(_fcT(_fcTrunc(step.name, 38), {x:cx2, y:y+nh/2+1, 'text-anchor':'middle', fill:'#374151', 'font-size':'11', 'font-family':'monospace'}));
+      g.appendChild(_fcT(`#${step.seq}`, {x:cx2, y:y+nh/2+14, 'text-anchor':'middle', fill:'#9ca3af', 'font-size':'9', 'font-family':'monospace'}));
     } else {
-      g.appendChild(_fcT(`#${step.seq}`, {x:FC_NX+12, y:y+15, fill:'#4a5568', 'font-size':'9', 'font-family':'monospace'}));
-      g.appendChild(_fcT(_fcTrunc(step.name, 28), {x:FC_NX+12, y:y+31, fill:step.err?'#c0392b':'#cdd9e5', 'font-size':'11', 'font-family':'monospace', 'font-weight':'500'}));
-      g.appendChild(_fcT(step.type, {x:FC_NX+12, y:y+45, fill:'#3d4b5a', 'font-size':'9', 'font-family':'monospace'}));
+      g.appendChild(_fcT(`#${step.seq}`, {x:FC_NX+12, y:y+15, fill:'#9ca3af', 'font-size':'9', 'font-family':'monospace'}));
+      g.appendChild(_fcT(_fcTrunc(step.name, 28), {x:FC_NX+12, y:y+31, fill:step.err?'#dc2626':'#1f2937', 'font-size':'11', 'font-family':'monospace', 'font-weight':'500'}));
+      g.appendChild(_fcT(step.type, {x:FC_NX+12, y:y+45, fill:'#6b7280', 'font-size':'9', 'font-family':'monospace'}));
       if (step.dur !== null && step.dur >= 1000) {
         const dc = step.dur >= 5000 ? '#b91c1c' : step.dur >= 2000 ? '#c2410c' : '#b45309';
         const dt = (step.dur/1000).toFixed(1)+'s'+(step.dur>=5000?' ⚠':'');
@@ -577,7 +577,7 @@ function _fcRender(instIdx, steps) {
   // Arrow marker
   const defs = _fcE('defs');
   const mk = _fcE('marker', {id:`fcarr-${instIdx}`, markerWidth:'8', markerHeight:'8', refX:'8', refY:'4', orient:'auto'});
-  mk.appendChild(_fcE('path', {d:'M0,0.5 L0,7.5 L8,4 z', fill:'#2d333b'}));
+  mk.appendChild(_fcE('path', {d:'M0,0.5 L0,7.5 L8,4 z', fill:'#9ca3af'}));
   defs.appendChild(mk);
   svg.appendChild(defs);
 
@@ -597,7 +597,7 @@ function _fcRender(instIdx, steps) {
       const prevBottom = prevEl._y + prevEl._nh;
       svg.appendChild(_fcE('line', {
         x1:cx, y1:prevBottom+1, x2:cx, y2:y-1,
-        stroke:'#2d333b', 'stroke-width':'1.5', 'marker-end':`url(#fcarr-${instIdx})`
+        stroke:'#9ca3af', 'stroke-width':'1.5', 'marker-end':`url(#fcarr-${instIdx})`
       }));
     }
 
