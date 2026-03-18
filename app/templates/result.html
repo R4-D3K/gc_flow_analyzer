@@ -477,7 +477,7 @@
     <!-- Split layout: flowchart left · detail panel right -->
     <div style="display:flex; height:68vh; min-height:380px;">
       <!-- SVG canvas -->
-      <div style="flex:1; overflow:hidden; min-width:0; position:relative; background:#f6f8fa;"
+      <div style="flex:1; overflow:auto; min-width:0; position:relative; background:#f6f8fa;"
            id="fc-wrap-{{ loop.index }}">
         <svg id="fc-svg-{{ loop.index }}" style="display:block; width:100%; height:100%;"></svg>
       </div>
@@ -672,9 +672,10 @@ function _fcRender(instIdx, steps) {
   }
   _fcNaturalH[instIdx] = y + 4;
 
-  const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
-  g.setAttribute('transform', `translate(${t.tx},${t.ty}) scale(${t.scale})`);
+  svg.style.width = '100%';
+  svg.style.height = '100%';
   svg.appendChild(g);
+  _fcApplyTransform(instIdx);
 
   if (!svg._fcEvt) {
     svg._fcEvt = true;
@@ -685,10 +686,19 @@ function _fcRender(instIdx, steps) {
 }
 
 function _fcApplyTransform(instIdx) {
-  const g = document.getElementById(`fc-g-${instIdx}`);
-  if (!g) return;
+  const g   = document.getElementById(`fc-g-${instIdx}`);
+  const svg = document.getElementById(`fc-svg-${instIdx}`);
+  const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+  if (!g || !svg) return;
   const t = _fcTransform[instIdx] || {scale:1, tx:0, ty:0};
   g.setAttribute('transform', `translate(${t.tx},${t.ty}) scale(${t.scale})`);
+  // Resize SVG so the wrap div shows a scrollbar when content overflows
+  const right  = t.tx + (FC_NX + FC_NW + 20) * t.scale + 20;
+  const bottom = t.ty + (_fcNaturalH[instIdx] || 600) * t.scale + 20;
+  const minW = wrap ? wrap.clientWidth  : 0;
+  const minH = wrap ? wrap.clientHeight : 0;
+  svg.style.width  = Math.max(right,  minW) + 'px';
+  svg.style.height = Math.max(bottom, minH) + 'px';
 }
 
 function fcZoomIn(instIdx)  { _fcZoom(instIdx,  1.25); }
