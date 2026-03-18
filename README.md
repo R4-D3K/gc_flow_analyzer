@@ -49,7 +49,7 @@ Web tool for analyzing Genesys Cloud Architect flow execution history via the Pu
 
    - **Steps** — full step-by-step execution trace with durations, I/O data, and nested data-action sub-steps. Click any row to open a detail panel. Filterable by name or type; exportable to CSV.
    - **Variable Changes** — pivot view of all output variable changes grouped by prefix (Flow, Task, Call, …). Shows the full value history for each variable as a chip sequence. Filterable; exportable to CSV.
-   - **Flow Diagram** — vertical step timeline with dot markers (shape indicates action category), inline output chips, and slow-step highlighting. Click any step to open the detail panel.
+   - **Flow Diagram** — interactive SVG flowchart with split layout: graph on the left, step detail panel on the right. Node shape and color indicate action category (decision = diamond, meta = capsule, action = rectangle). Click any node to open the detail panel showing inputs, outputs, and a snapshot of all variable values at that point in the execution.
 
 ## Keyboard shortcuts
 
@@ -72,7 +72,7 @@ app/
 ├── main.py          FastAPI routes
 ├── config.py        Environment / settings
 ├── gc_client.py     Genesys Cloud API calls (auth, conversation details, execution job)
-├── flow_parser.py   Transforms raw execution JSON → Python dataclasses + Mermaid source
+├── flow_parser.py   Transforms raw execution JSON → Python dataclasses
 └── templates/
     ├── base.html    Layout, Tailwind CSS
     ├── index.html   Input form with recent-ID history
