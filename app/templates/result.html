@@ -626,8 +626,11 @@ function fcInit(instIdx) {
   _fcSteps[instIdx] = steps;
   _fcDone[instIdx] = true;
   if (!_fcTheme[instIdx]) {
-    _fcTheme[instIdx] = 'light';
-    const btn = document.getElementById(`fc-th-${instIdx}-light`);
+    let saved; try { saved = localStorage.getItem('fc_theme'); } catch {}
+    _fcTheme[instIdx] = FC_THEME_BG[saved] ? saved : 'light';
+    const wrap = document.getElementById(`fc-wrap-${instIdx}`);
+    if (wrap) wrap.style.background = FC_THEME_BG[_fcTheme[instIdx]];
+    const btn = document.getElementById(`fc-th-${instIdx}-${_fcTheme[instIdx]}`);
     if (btn) btn.classList.add('active');
   }
   _fcRender(instIdx, steps);
@@ -725,6 +728,7 @@ function fcZoomFit(instIdx) {
 
 function fcSetTheme(instIdx, theme) {
   _fcTheme[instIdx] = theme;
+  try { localStorage.setItem('fc_theme', theme); } catch {}
   const wrap = document.getElementById(`fc-wrap-${instIdx}`);
   if (wrap) wrap.style.background = FC_THEME_BG[theme] || '#f6f8fa';
   ['light','dark','beige','gray'].forEach(t => {
