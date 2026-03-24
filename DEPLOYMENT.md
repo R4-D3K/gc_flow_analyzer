@@ -57,11 +57,13 @@ Docker container: gc-flow-analyzer
 ### 1.3 Povolení SSH
 
 1. DSM → **Control Panel → Terminal & SNMP**
-2. Zaškrtnout **Enable SSH service**, port `22`
+2. Zaškrtnout **Enable SSH service**, nastav port (výchozí `22`, lze změnit na jiný)
 3. Kliknout **Apply**
 
 > **Tip:** Pro přístup z Windows doporučuji použít **Windows Terminal** nebo **PuTTY**.
-> Připojení: `ssh admin@<IP-NASu>` nebo `ssh admin@radekn.com`
+> Připojení: `ssh -p <port> admin@<IP-NASu>`
+>
+> Pokud používáš nestandardní port (např. `73`), přidávej vždy `-p <port>` ke každému `ssh` i `scp` příkazu.
 
 ---
 
@@ -114,8 +116,11 @@ ssh admin@radekn.com
 sudo mkdir -p /volume1/docker/gc-flow-analyzer/data
 sudo chown -R $(whoami):users /volume1/docker/gc-flow-analyzer
 chmod 750 /volume1/docker/gc-flow-analyzer
-chmod 700 /volume1/docker/gc-flow-analyzer/data
+chmod 755 /volume1/docker/gc-flow-analyzer/data
 ```
+
+> **Poznámka:** Adresář `data/` musí mít `chmod 755` (ne 700), jinak ho Docker container
+> spuštěný jako non-root user `app` nemůže číst a aplikace selže s `PermissionError`.
 
 ### 3.2 Klonování repozitáře
 
@@ -196,10 +201,14 @@ Budeš vyzván k zadání hesla dvakrát. Zvol silné heslo (doporučuji 12+ zna
 
 Výstup:
 ```
-APP_PASSWORD_HASH=$2b$12$eImiTXuWVxfM37uY9JVvYeB3zBrwnDByBIbTZFBSolLKO3lbAR9e.
+APP_PASSWORD_HASH=JDJiJDEyJHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA==
 ```
 
 **Zkopíruj celý řádek.**
+
+> **Poznámka:** Hash je uložen jako base64 string (bez znaků `$`). Důvod: Docker Compose v2
+> interpretuje `$` v env souborech jako proměnné prostředí, což by způsobilo oříznutí bcrypt
+> hashe a nefunkční přihlášení. Base64 enkódování tento problém zcela eliminuje.
 
 ### 4.5 Vytvoření .env.prod na NASu
 
@@ -217,7 +226,9 @@ Vyplň soubor hodnotami z kroků 4.2–4.4:
 # ── Session & Auth ──────────────────────────────────────────────────
 SESSION_SECRET=a3f8c2d19e4b76a1f0c5e8d2b9a3f7c1d4e6b8a2f5c9e1d3b7a4f6c2e8d5b1a9
 
-APP_PASSWORD_HASH=$2b$12$eImiTXuWVxfM37uY9JVvYeB3zBrwnDByBIbTZFBSolLKO3lbAR9e.
+# Hash vygenerovaný příkazem: python manage_orgs.py hash-password
+# Hodnota je base64-enkódovaný bcrypt hash (bez znaků $)
+APP_PASSWORD_HASH=JDJiJDEyJHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA==
 
 # ── Org credential encryption ──────────────────────────────────────
 FC_ENCRYPTION_KEY=9GZ0OWFoU6LC28QlvMWPnmzv3NPfjxzOu0P_ITFz3gs=
@@ -226,6 +237,10 @@ FC_ENCRYPTION_KEY=9GZ0OWFoU6LC28QlvMWPnmzv3NPfjxzOu0P_ITFz3gs=
 APP_HOST=0.0.0.0
 APP_PORT=8000
 APP_DEBUG=false
+
+# Session cookie — false = funguje přes HTTP (lokální přístup)
+#                  true  = vyžaduje HTTPS (nastavit po konfiguraci reverse proxy)
+SESSION_HTTPS_ONLY=false
 
 # Ponech prázdné — aplikace poběží na subdoméně gc.radekn.com
 APP_ROOT_PATH=
@@ -332,16 +347,25 @@ Výstup (credentials se nezobrazují):
 
 Pokud jsi přidával orgy na PC, zkopíruj soubor na NAS:
 
-```bash
-# Z Windows PowerShell / příkazového řádku:
-scp data\orgs.yaml admin@radekn.com:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
+```powershell
+# Z Windows PowerShell — uprav port podle svého SSH nastavení:
+scp -P <ssh-port> data\orgs.yaml radekn@192.168.1.73:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
 ```
 
-Zabezpeč soubor:
+> **Pokud `scp` selže s `subsystem request failed`** (SFTP subsystém není povolen),
+> použij SSH pipe jako náhradu:
+> ```powershell
+> type data\orgs.yaml | ssh -p <ssh-port> radekn@192.168.1.73 "cat > /volume1/docker/gc-flow-analyzer/data/orgs.yaml"
+> ```
+
+Nastav správná oprávnění:
 ```bash
 # SSH na NASu:
-chmod 600 /volume1/docker/gc-flow-analyzer/data/orgs.yaml
+chmod 644 /volume1/docker/gc-flow-analyzer/data/orgs.yaml
 ```
+
+> Soubor obsahuje Fernet-šifrované credentials — obsah bez `FC_ENCRYPTION_KEY` je nečitelný,
+> proto `chmod 644` (čitelné pro container) je bezpečné.
 
 ---
 
@@ -441,7 +465,20 @@ curl -s http://localhost:8765/health
 4. V sekci **Services** přiřadit certifikát pro `gc.radekn.com` (reverse proxy pravidlo)
 5. Kliknout **Confirm**
 
-### 8.3 Ověření reverse proxy
+### 8.3 Aktivace HTTPS-only session cookie
+
+Po zprovoznění HTTPS nastav session cookie na HTTPS-only režim:
+
+```bash
+# SSH na NASu:
+nano /volume1/docker/gc-flow-analyzer/.env.prod
+# Změň: SESSION_HTTPS_ONLY=false  →  SESSION_HTTPS_ONLY=true
+# Uložit: Ctrl+O, Enter, Ctrl+X
+
+sudo docker compose restart
+```
+
+### 8.4 Ověření reverse proxy
 
 ```bash
 # Z PC nebo z mobilu mimo lokální síť:
@@ -496,19 +533,19 @@ python manage_orgs.py add \
   --environment euc2.pure.cloud \
   --client-id "..." --client-secret "..."
 
-# Zkopíruj aktualizovaný orgs.yaml na NAS:
-scp data\orgs.yaml admin@radekn.com:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
+# Zkopíruj aktualizovaný orgs.yaml na NAS (uprav port):
+scp -P <ssh-port> data\orgs.yaml radekn@192.168.1.73:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
 
 # Restart containeru (načtení nového orgs.yaml):
-ssh admin@radekn.com "cd /volume1/docker/gc-flow-analyzer && sudo docker compose restart"
+ssh -p <ssh-port> radekn@192.168.1.73 "cd /volume1/docker/gc-flow-analyzer && sudo docker compose restart"
 ```
 
 ### 10.2 Smazání org profilu
 
 ```bash
 python manage_orgs.py delete --name "Old Customer"
-scp data\orgs.yaml admin@radekn.com:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
-ssh admin@radekn.com "cd /volume1/docker/gc-flow-analyzer && sudo docker compose restart"
+scp -P <ssh-port> data\orgs.yaml radekn@192.168.1.73:/volume1/docker/gc-flow-analyzer/data/orgs.yaml
+ssh -p <ssh-port> radekn@192.168.1.73 "cd /volume1/docker/gc-flow-analyzer && sudo docker compose restart"
 ```
 
 ### 10.3 Aktualizace aplikace na novou verzi
@@ -611,13 +648,32 @@ Typické příčiny:
 - Chybný `FC_ENCRYPTION_KEY` (neplatný Fernet klíč)
 - Špatná syntaxe v `.env.prod`
 
-### Přihlášení nefunguje (nekonečná redirects nebo "Invalid password")
+### Přihlášení nefunguje — "Invalid password"
 
 ```bash
-# Ověř že APP_PASSWORD_HASH je správně nastaven:
-grep APP_PASSWORD_HASH /volume1/docker/gc-flow-analyzer/.env.prod
-# Musí začínat: $2b$12$...
+# Ověř co container skutečně vidí jako APP_PASSWORD_HASH:
+sudo docker exec gc-flow-analyzer env | grep APP_PASSWORD_HASH
+# Musí být base64 string (dlouhý řetězec bez znaků $)
+# Pokud je prázdný nebo zkrácený → problém s $ interpolací (viz níže)
+```
 
+> **Problém s `$` interpolací v docker-compose:**
+> Docker Compose v2 interpretuje `$` v env souborech jako proměnné prostředí.
+> Proto `APP_PASSWORD_HASH` **musí být vygenerován příkazem `python manage_orgs.py hash-password`**
+> který automaticky base64-enkóduje hash a odstraní všechny `$` znaky.
+> Nikdy nekopíruj raw bcrypt hash (začínající `$2b$12$...`) přímo do `.env.prod`.
+
+### Přihlášení selže — po zadání hesla se znovu zobrazí login
+
+```bash
+# Ověř nastavení session cookie:
+grep SESSION_HTTPS_ONLY /volume1/docker/gc-flow-analyzer/.env.prod
+```
+
+- Přistupuješ přes **HTTP** (lokálně): musí být `SESSION_HTTPS_ONLY=false`
+- Přistupuješ přes **HTTPS** (reverse proxy): musí být `SESSION_HTTPS_ONLY=true`
+
+```bash
 # Ověř SESSION_SECRET:
 grep SESSION_SECRET /volume1/docker/gc-flow-analyzer/.env.prod
 # Nesmí být prázdný nebo "change-me"
@@ -648,14 +704,15 @@ sudo docker compose logs | grep -E "orgs|Loaded|ENCRYPTION"
 - `Architect > flowInstance > All Permissions`
 - `Architect > flowInstanceExecutionData > All Permissions`
 
-### Session se nepersistuje (neustálé odhlašování)
+### Session se nepersistuje (neustálé odhlašování přes HTTPS)
 
-Pravděpodobná příčina: `https_only=True` ale HTTPS není správně ukončeno na reverse proxy.
+Pravděpodobná příčina: `SESSION_HTTPS_ONLY=true` ale HTTPS není správně ukončeno na reverse proxy.
 
 Ověř:
 1. Certifikát je platný a přiřazený k `gc.radekn.com`
 2. Prohlížeč přistupuje přes `https://` (ne `http://`)
-3. V `.env.prod` je `APP_DEBUG=false`
+3. V `.env.prod` je `SESSION_HTTPS_ONLY=true`
+4. Reverse proxy předává hlavičku `X-Forwarded-Proto: https`
 
 ### SSL certifikát nelze vygenerovat (Let's Encrypt error)
 
@@ -670,10 +727,10 @@ Ověř:
 | Vrstva | Mechanismus | Poznámka |
 |--------|-------------|----------|
 | Transport | TLS 1.2/1.3 (Let's Encrypt) | Automatická obnova v DSM |
-| Přístup k aplikaci | bcrypt heslo + session cookie | Session 8h, HTTPS-only |
+| Přístup k aplikaci | bcrypt heslo (base64) + session cookie | Session 8h, HTTPS-only při `SESSION_HTTPS_ONLY=true` |
 | Credentials v klidovém stavu | Fernet (AES-128-CBC + HMAC-SHA256) | Klíč pouze v env var |
 | Docker image | Non-root user (`app`) | Omezená práva uvnitř containeru |
-| orgs.yaml | chmod 600, read-only mount | Container nemůže soubor přepsat |
+| orgs.yaml | chmod 644, read-only mount, Fernet šifrování | Container nemůže soubor přepsat, obsah je šifrovaný |
 | .env.prod | chmod 600 | Čitelné jen pro admin |
 
 ---
@@ -696,7 +753,7 @@ Ověř:
 │   ├── flow_parser.py
 │   └── templates/
 └── data/
-    └── orgs.yaml              ← šifrované org credentials (chmod 600)
+    └── orgs.yaml              ← šifrované org credentials (chmod 644)
 ```
 
 ---
