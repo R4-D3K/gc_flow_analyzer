@@ -23,4 +23,10 @@ SESSION_SECRET    = os.getenv("SESSION_SECRET", "dev-secret-change-in-prod")
 FC_ENCRYPTION_KEY = os.getenv("FC_ENCRYPTION_KEY", "")
 ORGS_FILE         = os.getenv("ORGS_FILE", str(Path(__file__).parent.parent / "data" / "orgs.yaml"))
 
-MULTI_ORG_MODE = bool(FC_ENCRYPTION_KEY and Path(ORGS_FILE).exists())
+def _orgs_file_readable(path: str) -> bool:
+    try:
+        return Path(path).exists()
+    except PermissionError:
+        return False
+
+MULTI_ORG_MODE = bool(FC_ENCRYPTION_KEY and _orgs_file_readable(ORGS_FILE))
