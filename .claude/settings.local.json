@@ -19,7 +19,9 @@
       "Bash(venv/Scripts/python.exe -c \"from app.main import app; from app.flow_parser import _group_variable_history; print\\(''OK''\\)\")",
       "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
       "Bash(python -c \"from jinja2 import Environment, FileSystemLoader; env = Environment\\(loader=FileSystemLoader\\(''app/templates''\\)\\); t = env.get_template\\(''result.html''\\); print\\(''Template OK''\\)\")",
-      "Bash(python -c \"from jinja2 import Environment, FileSystemLoader; env = Environment\\(loader=FileSystemLoader\\(''app/templates''\\)\\); t = env.get_template\\(''result.html''\\); print\\(''OK''\\)\")"
+      "Bash(python -c \"from jinja2 import Environment, FileSystemLoader; env = Environment\\(loader=FileSystemLoader\\(''app/templates''\\)\\); t = env.get_template\\(''result.html''\\); print\\(''OK''\\)\")",
+      "WebSearch",
+      "WebFetch(domain:help.genesys.cloud)"
     ],
     "additionalDirectories": [
       "\\tmp"
