@@ -54,7 +54,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=config.SESSION_SECRET,
     max_age=8 * 3600,
-    https_only=not config.APP_DEBUG,
+    https_only=config.SESSION_HTTPS_ONLY,
     same_site="lax",
 )  # added 2nd → runs 2nd
 

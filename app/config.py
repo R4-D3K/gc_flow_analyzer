@@ -17,7 +17,8 @@ APP_ROOT_PATH = os.getenv("APP_ROOT_PATH", "").rstrip("/")
 
 # ── Auth ───────────────────────────────────────────────────────────
 APP_PASSWORD_HASH = os.getenv("APP_PASSWORD_HASH", "")
-SESSION_SECRET    = os.getenv("SESSION_SECRET", "dev-secret-change-in-prod")
+SESSION_SECRET      = os.getenv("SESSION_SECRET", "dev-secret-change-in-prod")
+SESSION_HTTPS_ONLY  = os.getenv("SESSION_HTTPS_ONLY", "false").lower() == "true"
 
 # ── Multi-org ──────────────────────────────────────────────────────
 FC_ENCRYPTION_KEY = os.getenv("FC_ENCRYPTION_KEY", "")
