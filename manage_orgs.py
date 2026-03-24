@@ -14,7 +14,7 @@ Environment:
   ORGS_FILE           Path to orgs.yaml (default: ./data/orgs.yaml)
 """
 
-import argparse, getpass, os, sys
+import argparse, base64, getpass, os, sys
 from pathlib import Path
 
 # Load .env.prod if it exists
@@ -68,8 +68,9 @@ def cmd_hash_password(_args):
     if pw != pw2:
         print("ERROR: Passwords do not match.")
         sys.exit(1)
-    h = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
-    print(f"\nAPP_PASSWORD_HASH={h}\n")
+    h = bcrypt.hashpw(pw.encode(), bcrypt.gensalt())
+    h_b64 = base64.b64encode(h).decode()
+    print(f"\nAPP_PASSWORD_HASH={h_b64}\n")
     print("Add this to .env.prod")
 
 
